@@ -1,4 +1,4 @@
--- V34.1.0 — ajuste numérico nos sliders e ajuda redesenhada.
+-- V34.2.0 — jogadores, seletores e estado da mira reorganizados.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -4822,6 +4822,8 @@ function UI.ApplyTheme(themeName)
 		UI.ShowPage(State.UI.ActivePage)
 	end
 
+	if State.UI.RefreshPlayerDirectory then State.UI.RefreshPlayerDirectory() end
+
 	if UI.ApplyFOVStyle then
 		UI.ApplyFOVStyle(Config.FOVStyle)
 	end
@@ -5007,17 +5009,10 @@ end
 function UI.CloseChoiceMenu()
 	local active = State.UI.ActiveChoiceMenu
 	State.UI.ActiveChoiceMenu = nil
-
-	if not active then
-		return
-	end
-
-	if active.Overlay and active.Overlay.Parent then
-		active.Overlay:Destroy()
-	end
-	if active.Panel and active.Panel.Parent then
-		active.Panel:Destroy()
-	end
+	if not active then return end
+	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
+	if active.Overlay and active.Overlay.Parent then active.Overlay:Destroy() end
+	if active.Panel and active.Panel.Parent then active.Panel:Destroy() end
 end
 
 function UI.CloseHelpDialog()
@@ -5161,217 +5156,165 @@ function UI.CreateHelpButton(parent, title, message, position)
 end
 
 function UI.OpenChoiceMenu(anchor, title, choices, currentValue, onSelected)
-	if not anchor
-		or not anchor.Parent
-		or not State.UI.Root
-		or type(choices) ~= "table"
-		or #choices == 0 then
-
+	local root = State.UI.Root
+	if not anchor or not anchor.Parent or not root or not root.Parent
+		or type(choices) ~= "table" or #choices == 0 or State.UI.LayoutEditMode then
 		return false
 	end
-
+	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(true) end
 	UI.CloseChoiceMenu()
 	UI.CloseHelpDialog()
 
-	local viewport = S.Camera and S.Camera.ViewportSize
-		or Vector2.new(800, 450)
-	local maximumWidth = math.max(viewport.X - 16, 80)
-	local width = math.min(
-		math.clamp(anchor.AbsoluteSize.X + 52, 228, 330),
-		maximumWidth
-	)
-	local contentHeight = 0
-	for _, choice in ipairs(choices) do
-		contentHeight += choice.Description and 50 or 40
-	end
-	contentHeight += math.max(#choices - 1, 0) * 5
-	local maximumPanelHeight = math.max(viewport.Y - 16, 80)
-	local listHeight = math.min(
-		contentHeight + 8,
-		246,
-		math.max(maximumPanelHeight - 46, 34)
-	)
-	local panelHeight = listHeight + 46
-	local anchorPosition = anchor.AbsolutePosition
-	local anchorSize = anchor.AbsoluteSize
-	local x = math.clamp(
-		anchorPosition.X + anchorSize.X - width,
-		8,
-		math.max(viewport.X - width - 8, 8)
-	)
-	local y = anchorPosition.Y + anchorSize.Y + 6
-	if y + panelHeight > viewport.Y - 8 then
-		y = math.max(anchorPosition.Y - panelHeight - 6, 8)
-	end
-
 	local overlay = Util.New("TextButton", {
-		Name = "AAP_ChoiceOverlay",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-		BackgroundTransparency = 0.72,
-		BorderSizePixel = 0,
-		Text = "",
-		AutoButtonColor = false,
-		Active = true,
-		ZIndex = 180,
-	}, State.UI.Root)
-
-	local panel = Util.New("Frame", {
-		Name = "AAP_ChoicePanel",
-		Position = UDim2.fromOffset(x, y),
-		Size = UDim2.fromOffset(width, panelHeight),
-		BackgroundColor3 = Theme.Surface2,
-		BackgroundTransparency = 0.02,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		ZIndex = 181,
-	}, State.UI.Root)
-	Util.Corner(panel, 17)
-	Util.GlassGradient(
-		panel,
-		Theme.GlassRaised,
-		Theme.Glass,
-		0.02,
-		0.01,
-		90
-	)
-	Util.Stroke(panel, Theme.Accent, 0.22, 1)
-	Util.InnerHighlight(panel, 14, 0.84, 182)
-
-	Util.FitText(Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 7),
-		Size = UDim2.new(1, -56, 0, 30),
-		BackgroundTransparency = 1,
-		Text = string.upper(tostring(title or "ESCOLHA UMA OPÇÃO")),
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 9,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 183,
-	}, panel), 7, 10)
-
-	local closeButton = Util.New("TextButton", {
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -9, 0, 22),
-		Size = UDim2.fromOffset(28, 28),
-		BackgroundColor3 = Theme.Surface3,
-		BackgroundTransparency = 0.10,
-		BorderSizePixel = 0,
-		Text = "X",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		AutoButtonColor = false,
-		ZIndex = 184,
+		Name = "AAP_ChoiceOverlay", Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.40,
+		BorderSizePixel = 0, Text = "", Active = true, Modal = true,
+		AutoButtonColor = false, ZIndex = 180,
+	}, root)
+	local panel = Util.New("TextButton", {
+		Name = "AAP_ChoicePanel", AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		BackgroundColor3 = Theme.Surface2, BackgroundTransparency = 0.01,
+		BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+		Active = true, ClipsDescendants = true, ZIndex = 181,
+	}, root)
+	Util.Corner(panel, 18)
+	Util.Stroke(panel, Theme.BorderSoft, 0.32, 1)
+	Util.New("TextLabel", {
+		Position = UDim2.fromOffset(20, 16), Size = UDim2.new(1, -70, 0, 12),
+		BackgroundTransparency = 1, Text = "ESCOLHA UMA OPÇÃO",
+		TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium, TextSize = 8,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 183,
 	}, panel)
-	Util.Corner(closeButton, 999)
-	Util.Stroke(closeButton, Theme.BorderSoft, 0.52, 1)
-	UI.TouchFeedback(closeButton)
-
+	Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.fromOffset(20, 34), Size = UDim2.new(1, -40, 0, 24),
+		BackgroundTransparency = 1, Text = tostring(title or "Opções"),
+		TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 183,
+	}, panel), 10, 14)
+	local close = Util.New("TextButton", {
+		Name = "AAP_CloseChoice", AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(30, 28),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.45,
+		BorderSizePixel = 0, Text = "×", TextColor3 = Theme.Sub,
+		Font = Enum.Font.Gotham, TextSize = 16, AutoButtonColor = false, ZIndex = 184,
+	}, panel)
+	Util.Corner(close, 9)
+	UI.TouchFeedback(close)
 	local list = Util.New("ScrollingFrame", {
-		Position = UDim2.fromOffset(8, 40),
-		Size = UDim2.new(1, -16, 0, listHeight),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		CanvasSize = UDim2.fromOffset(0, contentHeight + 8),
-		ScrollBarThickness = contentHeight > listHeight and 4 or 0,
-		ScrollBarImageColor3 = Theme.Accent,
-		ScrollBarImageTransparency = 0.16,
+		Name = "AAP_ChoiceList", Position = UDim2.fromOffset(16, 70),
+		Size = UDim2.new(1, -32, 1, -106),
+		BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3,
+		ScrollBarImageColor3 = Theme.Sub, ScrollBarImageTransparency = 0.45,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
 		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
 		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
-		ZIndex = 182,
+		ClipsDescendants = true, Active = true, ZIndex = 182,
 	}, panel)
 	Util.New("UIListLayout", {
-		Padding = UDim.new(0, 5),
-		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder,
 	}, list)
 	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 2),
-		PaddingRight = UDim.new(0, 6),
-		PaddingTop = UDim.new(0, 2),
-		PaddingBottom = UDim.new(0, 6),
+		PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 6),
+		PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 4),
 	}, list)
-
-	State.UI.ActiveChoiceMenu = {
-		Overlay = overlay,
-		Panel = panel,
-	}
-
-	overlay.MouseButton1Click:Connect(UI.CloseChoiceMenu)
-	closeButton.MouseButton1Click:Connect(UI.CloseChoiceMenu)
-
+	Util.New("TextLabel", {
+		AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 20, 1, -12),
+		Size = UDim2.new(1, -40, 0, 14), BackgroundTransparency = 1,
+		Text = "Toque em uma opção para aplicar.", TextColor3 = Theme.Sub,
+		Font = Enum.Font.Gotham, TextSize = 8,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 183,
+	}, panel)
+	local menu = {Overlay = overlay, Panel = panel, List = list, Rows = {}, Connections = {}}
+	State.UI.ActiveChoiceMenu = menu
 	for index, choice in ipairs(choices) do
 		local selected = choice.Value == currentValue
 		local row = Util.New("TextButton", {
-			Size = UDim2.new(1, -2, 0, choice.Description and 50 or 40),
+			Name = "AAP_Choice_" .. tostring(index), Size = UDim2.new(1, -2, 0, 64),
 			BackgroundColor3 = selected and Theme.CardActive or Theme.Card,
-			BackgroundTransparency = selected and 0.01 or 0.05,
-			BorderSizePixel = 0,
-			Text = "",
-			AutoButtonColor = false,
-			LayoutOrder = index,
-			ZIndex = 183,
+			BackgroundTransparency = selected and 0.04 or 0.20,
+			BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+			LayoutOrder = index, ZIndex = 183,
 		}, list)
-		Util.Corner(row, 13)
-		Util.Stroke(
-			row,
-			selected and Theme.Accent or Theme.BorderInner,
-			selected and 0.18 or 0.68,
-			1
-		)
-		Util.Sheen(row, 0.80)
-
-		Util.FitText(Util.New("TextLabel", {
-			Position = UDim2.fromOffset(12, choice.Description and 6 or 0),
-			Size = UDim2.new(1, -76, 0, choice.Description and 18 or 40),
-			BackgroundTransparency = 1,
-			Text = tostring(choice.Label or choice.Value),
-			TextColor3 = Theme.Text,
-			Font = Enum.Font.GothamBold,
-			TextSize = 8,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			ZIndex = 184,
-		}, row), 6, 9)
-
-		if choice.Description then
-			Util.FitText(Util.New("TextLabel", {
-				Position = UDim2.fromOffset(12, 25),
-				Size = UDim2.new(1, -76, 0, 17),
-				BackgroundTransparency = 1,
-				Text = choice.Description,
-				TextColor3 = Theme.Sub,
-				Font = Enum.Font.Gotham,
-				TextSize = 7,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				ZIndex = 184,
-			}, row), 5, 8)
-		end
-
-		local stateLabel = Util.New("TextLabel", {
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -9, 0.5, 0),
-			Size = UDim2.fromOffset(52, 24),
-			BackgroundColor3 = selected and Theme.AccentSoft or Theme.Surface3,
-			BackgroundTransparency = selected and 0.02 or 0.32,
-			BorderSizePixel = 0,
-			Text = selected and "ATUAL" or "ESCOLHER",
-			TextColor3 = selected and Theme.Accent2 or Theme.Sub,
-			Font = Enum.Font.GothamBold,
-			TextSize = 6,
-			ZIndex = 184,
+		Util.Corner(row, 12)
+		Util.Stroke(row, selected and Theme.AccentSoft or Theme.BorderSoft,
+			selected and 0.15 or 0.75, 1)
+		local radio = Util.New("Frame", {
+			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0),
+			Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Theme.Chip,
+			BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = 184,
 		}, row)
-		Util.Corner(stateLabel, 999)
-
+		Util.Corner(radio, 999)
+		Util.Stroke(radio, selected and Theme.Accent2 or Theme.Muted, selected and 0.05 or 0.40, 1)
+		if selected then
+			local dot = Util.New("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromOffset(8, 8), BackgroundColor3 = Theme.Accent2,
+				BorderSizePixel = 0, ZIndex = 185,
+			}, radio)
+			Util.Corner(dot, 999)
+		end
+		local label = Util.New("TextLabel", {
+			Position = UDim2.fromOffset(46, 12), Size = UDim2.new(1, -60, 0, 18),
+			BackgroundTransparency = 1, Text = tostring(choice.Label or choice.Value),
+			TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 11,
+			TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 184,
+		}, row)
+		local description
+		if choice.Description and choice.Description ~= "" then
+			description = Util.New("TextLabel", {
+				Position = UDim2.fromOffset(46, 34), Size = UDim2.new(1, -60, 0, 24),
+				BackgroundTransparency = 1, Text = tostring(choice.Description),
+				TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 10,
+				TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 184,
+			}, row)
+		end
+		menu.Rows[#menu.Rows + 1] = {Card = row, Title = label, Description = description, Radio = radio}
 		UI.TouchFeedback(row)
-		row.MouseButton1Click:Connect(function()
+		row.Activated:Connect(function()
+			-- A second touch on a closing row must not apply the choice twice.
+			if State.UI.ActiveChoiceMenu ~= menu or not Runtime.Alive then return end
 			UI.CloseChoiceMenu()
-			if onSelected then
-				onSelected(choice.Value, choice)
-			end
+			if onSelected then onSelected(choice.Value, choice) end
 		end)
 	end
-
+	local function measure(label, width)
+		local ok, bounds = pcall(function()
+			return game:GetService("TextService"):GetTextSize(label.Text, label.TextSize,
+				label.Font, Vector2.new(math.max(width, 1), 10000))
+		end)
+		return ok and math.ceil(bounds.Y) + 2
+			or math.ceil(#label.Text * label.TextSize * 0.62 / math.max(width, 1)) * (label.TextSize + 3)
+	end
+	local function layout()
+		local camera = S.Workspace.CurrentCamera or S.Camera
+		local viewport = camera and camera.ViewportSize or Vector2.new(800, 450)
+		local width = math.max(1, math.min(420, viewport.X - 32))
+		local contentHeight = 6 + math.max(#menu.Rows - 1, 0) * 7
+		for _, row in ipairs(menu.Rows) do
+			local titleHeight = math.max(18, measure(row.Title, width - 106))
+			row.Title.Size = UDim2.new(1, -60, 0, titleHeight)
+			local height = 24 + titleHeight
+			if row.Description then
+				local descriptionHeight = math.max(14, measure(row.Description, width - 106))
+				row.Description.Position = UDim2.fromOffset(46, 16 + titleHeight)
+				row.Description.Size = UDim2.new(1, -60, 0, descriptionHeight)
+				height += 4 + descriptionHeight
+			end
+			height = math.max(height, 48)
+			row.Card.Size = UDim2.new(1, -2, 0, height)
+			contentHeight += height
+		end
+		local height = math.min(contentHeight + 106, math.max(viewport.Y - 32, 1), 520)
+		panel.Size = UDim2.fromOffset(width, height)
+	end
+	layout()
+	menu.Connections[1] = root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
+	overlay.Activated:Connect(UI.CloseChoiceMenu)
+	close.Activated:Connect(UI.CloseChoiceMenu)
 	return true
 end
 
@@ -5380,7 +5323,8 @@ function UI.BindChoiceMenu(control, title, choices, getCurrent, onSelected)
 		return
 	end
 
-	control.Card.MouseButton1Click:Connect(function()
+	control.Card.Activated:Connect(function()
+		if control.Available == false or State.UI.LayoutEditMode then return end
 		local current = getCurrent
 		if type(getCurrent) == "function" then
 			current = getCurrent()
@@ -6242,14 +6186,6 @@ function UI.CreateToggle(parent, title, description, options)
 		1
 	)
 
-	local accentBar = Util.New("Frame", {
-		Position = UDim2.fromOffset(2, 10),
-		Size = UDim2.new(0, 3, 1, -20),
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.90,
-		BorderSizePixel = 0,
-	}, card)
-	Util.Corner(accentBar, 999)
 
 	local titleLabel = Util.FitText(Util.New("TextLabel", {
 		Position = UDim2.fromOffset(14, 8),
@@ -6310,7 +6246,6 @@ function UI.CreateToggle(parent, title, description, options)
 		SwitchStroke = switchStroke,
 		Knob = knob,
 		Stroke = stroke,
-		AccentBar = accentBar,
 	}
 	if options.Help then
 		control.Help = UI.CreateHelpButton(
@@ -6341,13 +6276,6 @@ function UI.SetToggle(control, enabled)
 			or Theme.BorderSoft
 	end
 
-	if control.AccentBar then
-		Util.Tween(
-			control.AccentBar,
-			{BackgroundTransparency = enabled and 0.08 or 0.90},
-			0.12
-		)
-	end
 
 	if control.Switch then
 		Util.Tween(
@@ -6928,13 +6856,6 @@ function UI.CreateExpandableGroup(parent, title, subtitle, expandedByDefault)
 	Util.Sheen(header, 0.08)
 	Util.Stroke(header, Theme.BorderSoft, 0.58, 1)
 
-	local marker = Util.New("Frame", {
-		Position = UDim2.fromOffset(9, 10),
-		Size = UDim2.new(0, 3, 1, -20),
-		BackgroundColor3 = Theme.Accent,
-		BorderSizePixel = 0,
-	}, header)
-	Util.Corner(marker, 999)
 
 	Util.FitText(Util.New("TextLabel", {
 		Position = UDim2.fromOffset(20, 6),
@@ -7039,6 +6960,48 @@ end
 
 -- Main responsive three-column interface.
 local VISION_MENU_ASPECT = 1.92
+
+function UI.BuildAimStatusPanel(panel)
+	State.UI.StatusTitle = Util.FitText(Util.New("TextLabel", {
+		Name = "AAP_StatusTitle", Position = UDim2.fromOffset(10, 6),
+		Size = UDim2.new(1, -20, 0, 14), BackgroundTransparency = 1,
+		Text = "ESTADO DA MIRA", TextColor3 = Theme.Text,
+		Font = Enum.Font.GothamBold, TextSize = 7,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, panel), 6, 8)
+	-- The title owns the entire first line. State and its dot share a separate line.
+	State.UI.StatusDot = Util.New("Frame", {
+		Name = "AAP_StatusDot", AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromOffset(10, 31), Size = UDim2.fromOffset(6, 6),
+		BackgroundColor3 = Theme.Muted, BorderSizePixel = 0,
+	}, panel)
+	Util.Corner(State.UI.StatusDot, 999)
+	State.UI.StatusMini = Util.FitText(Util.New("TextLabel", {
+		Name = "AAP_StatusState", Position = UDim2.fromOffset(23, 23),
+		Size = UDim2.new(1, -33, 0, 16), BackgroundTransparency = 1,
+		Text = "DESATIVADA", TextColor3 = Theme.Sub,
+		Font = Enum.Font.GothamMedium, TextSize = 7,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, panel), 6, 8)
+	State.UI.Status = Util.FitText(Util.New("TextLabel", {
+		Name = "AAP_StatusDescription", Position = UDim2.fromOffset(10, 44),
+		Size = UDim2.new(1, -20, 0, 29), BackgroundTransparency = 1,
+		Text = "Mira desativada", TextColor3 = Theme.Sub,
+		Font = Enum.Font.Gotham, TextSize = 7, TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+	}, panel), 6, 8)
+	State.UI.FPSLabel = Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.fromOffset(10, 82), Size = UDim2.new(0.46, -12, 0, 10),
+		BackgroundTransparency = 1, Text = "FPS: --", TextColor3 = Theme.Sub,
+		Font = Enum.Font.Code, TextSize = 6, TextXAlignment = Enum.TextXAlignment.Left,
+	}, panel), 5, 7)
+	State.UI.PingLabel = Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.new(0.46, 0, 0, 82), Size = UDim2.new(0.54, -10, 0, 10),
+		BackgroundTransparency = 1, Text = "PING: --", TextColor3 = Theme.Sub,
+		Font = Enum.Font.Code, TextSize = 6, TextXAlignment = Enum.TextXAlignment.Right,
+	}, panel), 5, 7)
+end
 
 local function GetVisionMenuSize(fill, requestedScale)
 	local viewport =
@@ -7428,7 +7391,7 @@ local function BuildVisionRootUI()
 		Size = UDim2.new(0.18, -7, 1, -(bodyTop + bodyBottom)),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		CanvasSize = UDim2.fromOffset(0, 320),
+		CanvasSize = UDim2.fromOffset(0, 344),
 		ScrollBarThickness = 2,
 		ScrollBarImageColor3 = Theme.Accent,
 		ScrollBarImageTransparency = 0.35,
@@ -7506,86 +7469,18 @@ local function BuildVisionRootUI()
 		return frame
 	end
 
-	local statusPanel = panel(left, UDim2.fromOffset(4, 3), UDim2.new(1, -10, 0, 72))
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(9, 6),
-		Size = UDim2.new(0.50, 0, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "ESTADO DA MIRA",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, statusPanel)
-
-	State.UI.StatusDot = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0.55, 0, 0, 14),
-		Size = UDim2.fromOffset(7, 7),
-		BackgroundColor3 = Theme.Muted,
-		BorderSizePixel = 0,
-	}, statusPanel)
-	Util.Corner(State.UI.StatusDot, 999)
-
-	State.UI.StatusMini = Util.New("TextLabel", {
-		Position = UDim2.new(0.55, 10, 0, 5),
-		Size = UDim2.new(0.45, -11, 0, 17),
-		BackgroundTransparency = 1,
-		Text = "DESATIVADA",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, statusPanel)
-	Util.FitText(State.UI.StatusMini, 4, 8)
-
-	State.UI.Status = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(9, 25),
-		Size = UDim2.new(1, -18, 0, 25),
-		BackgroundTransparency = 1,
-		Text = "Mira desativada",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham,
-		TextSize = 7,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-	}, statusPanel)
-	Util.FitText(State.UI.Status, 5, 8)
-
-	State.UI.FPSLabel = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(9, 55),
-		Size = UDim2.new(0.34, -9, 0, 11),
-		BackgroundTransparency = 1,
-		Text = "FPS: --",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Code,
-		TextSize = 6,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, statusPanel)
-	Util.FitText(State.UI.FPSLabel, 5, 7)
-
-	State.UI.PingLabel = Util.New("TextLabel", {
-		Position = UDim2.new(0.34, 0, 0, 55),
-		Size = UDim2.new(0.66, -9, 0, 11),
-		BackgroundTransparency = 1,
-		Text = "PING: --",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Code,
-		TextSize = 6,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	}, statusPanel)
-	Util.FitText(State.UI.PingLabel, 5, 7)
+	local statusPanel = panel(left, UDim2.fromOffset(4, 3), UDim2.new(1, -10, 0, 96))
+	UI.BuildAimStatusPanel(statusPanel)
 
 	State.UI.LeftToggleHolder = panel(
 		left,
-		UDim2.fromOffset(4, 81),
+		UDim2.fromOffset(4, 105),
 		UDim2.new(1, -10, 0, 142)
 	)
 
 	local profilePanel = panel(
 		left,
-		UDim2.fromOffset(4, 229),
+		UDim2.fromOffset(4, 253),
 		UDim2.new(1, -10, 0, 72)
 	)
 	Util.New("TextLabel", {
@@ -8182,7 +8077,7 @@ function UI.RefreshPageScrollCue(page)
 		page.AbsoluteCanvasSize.Y - page.AbsoluteWindowSize.Y,
 		0
 	)
-	local scrollable = page.Visible and maxY > 8
+	local scrollable = page.Visible and not page:GetAttribute("AAPHideScrollCue") and maxY > 8
 	local atBottom = scrollable and page.CanvasPosition.Y >= maxY - 5
 	cue.Visible = scrollable
 	cue.Text = atBottom and "^" or "V"
@@ -8531,15 +8426,6 @@ function UI.CreateRailToggle(parent, order, iconText, title, subtitle)
 	Util.Sheen(card, 0.06)
 	local stroke = Util.Stroke(card, Theme.BorderInner, 0.70, 1)
 
-	local accentLine = Util.New("Frame", {
-		Name = "ActiveLine",
-		Position = UDim2.fromOffset(1, 8),
-		Size = UDim2.fromOffset(2, 24),
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.90,
-		BorderSizePixel = 0,
-	}, card)
-	Util.Corner(accentLine, 999)
 
 	local marker = Util.New("Frame", {
 		Name = "Marker_" .. tostring(iconText),
@@ -8606,7 +8492,6 @@ function UI.CreateRailToggle(parent, order, iconText, title, subtitle)
 		SwitchStroke = switchStroke,
 		Knob = knob,
 		Status = status,
-		AccentLine = accentLine,
 	}
 end
 
@@ -8622,13 +8507,6 @@ function UI.SetRailToggle(control, enabled)
 	control.Status.TextColor3 = enabled and Theme.Accent2 or Theme.Sub
 	if control.Marker then
 		control.Marker.BackgroundColor3 = enabled and Theme.Accent or Theme.Muted
-	end
-	if control.AccentLine then
-		Util.Tween(
-			control.AccentLine,
-			{BackgroundTransparency = enabled and 0.06 or 0.90},
-			0.12
-		)
 	end
 	control.Switch.BackgroundColor3 = enabled and Theme.Accent or Theme.Chip
 	control.SwitchStroke.Color = enabled and Theme.Accent2 or Theme.BorderSoft
@@ -9037,17 +8915,6 @@ function UI.RefreshTargetSidebar()
 			1
 		)
 
-		local selectionBar = Util.New("Frame", {
-			Position = UDim2.fromOffset(1, 9),
-			Size = UDim2.fromOffset(2, 28),
-			BackgroundColor3 = manualAlly
-				and RelationColors.ALLY
-				or Theme.Accent,
-			BackgroundTransparency =
-				(selected or manualAlly) and 0.04 or 0.90,
-			BorderSizePixel = 0,
-		}, card)
-		Util.Corner(selectionBar, 999)
 
 		local avatar = Util.New("ImageLabel", {
 			Position = UDim2.fromOffset(6, 6),
@@ -10105,15 +9972,6 @@ function Pages.BuildAssistant()
 			1
 		)
 
-		local indicator = Util.New("Frame", {
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 4, 0.5, 0),
-			Size = UDim2.fromOffset(3, 18),
-			BackgroundColor3 = Theme.Muted,
-			BorderSizePixel = 0,
-		}, card)
-		Util.Corner(indicator, 999)
-
 		local titleLabel = Util.New("TextLabel", {
 			Position = UDim2.fromOffset(13, 8),
 			Size = UDim2.new(1, -26, 0, 16),
@@ -10143,7 +10001,6 @@ function Pages.BuildAssistant()
 		return {
 			Card = card,
 			Stroke = stroke,
-			Indicator = indicator,
 			Title = titleLabel,
 			Description = descriptionLabel,
 		}
@@ -10164,16 +10021,6 @@ function Pages.BuildAssistant()
 			selected
 			and 0.10
 			or 0.68
-
-		control.Indicator.BackgroundColor3 =
-			selected
-			and Theme.Accent
-			or Theme.Muted
-
-		control.Indicator.Size =
-			selected
-			and UDim2.fromOffset(3, 30)
-			or UDim2.fromOffset(3, 18)
 
 		control.Title.TextColor3 = selected and Theme.Accent2 or Theme.Text
 	end
@@ -13218,251 +13065,327 @@ function Pages.BuildESP()
 	return page
 end
 
+function UI.TogglePlayerFocus(player)
+	if State.UI.LayoutEditMode or not player or player.Parent ~= S.Players then return false end
+	if not State.SelectedPlayers[player] then
+		return UI.SelectExclusivePlayer(player, "Jogador escolhido na aba JOGADORES")
+	end
+	State.SelectedPlayers[player] = nil
+	if Config.AimMode == "SELECTED" then Config.AimMode = "AUTO" end
+	if State.CurrentTarget == player then Aim.ClearCurrentTarget("Jogador desmarcado") end
+	ESP.SafeRefresh(player)
+	if State.UI.RefreshPlayers then State.UI.RefreshPlayers() end
+	if State.UI.RefreshAimControls then State.UI.RefreshAimControls() end
+	if State.UI.RefreshFilters then State.UI.RefreshFilters() end
+	UI.Toast(player.DisplayName .. " saiu do foco.")
+	return true
+end
+
+function UI.LayoutPlayerEntry(entry, width)
+	local narrow = width < 360
+	entry.Card.Size = UDim2.new(1, 0, 0, narrow and 104 or 74)
+	entry.Avatar.Position = UDim2.fromOffset(10, narrow and 10 or 17)
+	local textRight = narrow and -70 or -230
+	entry.Name.Size = UDim2.new(1, textRight, 0, 17)
+	entry.Username.Size = UDim2.new(1, textRight, 0, 14)
+	entry.Detail.Size = UDim2.new(1, textRight, 0, 14)
+	if narrow then
+		entry.Focus.Position = UDim2.fromOffset(10, 65)
+		entry.Focus.Size = UDim2.new(0.5, -14, 0, 30)
+		entry.Protect.Position = UDim2.new(0.5, 4, 0, 65)
+		entry.Protect.Size = UDim2.new(0.5, -14, 0, 30)
+	else
+		entry.Focus.Position = UDim2.new(1, -160, 0, 21)
+		entry.Focus.Size = UDim2.fromOffset(68, 32)
+		entry.Protect.Position = UDim2.new(1, -84, 0, 21)
+		entry.Protect.Size = UDim2.fromOffset(74, 32)
+	end
+end
+
 function Pages.BuildPlayers()
 	local page = UI.CreatePage("Players")
-	local controls = {}
-
-	UI.Section(
-		page,
-		"JOGADORES",
-		"Use Focar para escolher um alvo. Use Proteger para impedir que a mira escolha essa pessoa."
-	)
-
-	controls.TapSelect = UI.CreateToggle(
-		page,
-		"Selecionar tocando no jogador",
-		"Um toque curto escolhe o jogador. Arrastar a câmera não conta.",
-		{
-			Help = "Toque diretamente no personagem durante a partida. A opção não seleciona enquanto você estiver arrastando a câmera.",
-		}
-	)
-
+	page:SetAttribute("AAPHideScrollCue", true)
+	page.Position = UDim2.fromOffset(3, 79)
+	page.Size = UDim2.new(1, -6, 1, -82)
+	page.ScrollBarThickness = 3
+	local controls = {Entries = {}, Filter = "ALL", Query = "", SearchGeneration = 0}
+	local toolbar = Util.New("Frame", {
+		Name = "AAP_PlayerToolbar", Position = UDim2.fromOffset(7, 5),
+		Size = UDim2.new(1, -22, 0, 68), BackgroundTransparency = 1,
+		BorderSizePixel = 0, Visible = page.Visible,
+	}, page.Parent)
+	controls.Toolbar = toolbar
+	local searchCard = Util.New("Frame", {
+		Name = "AAP_PlayerSearch", Size = UDim2.new(1, -144, 0, 30),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.25, BorderSizePixel = 0,
+	}, toolbar)
+	Util.Corner(searchCard, 10)
+	Util.Stroke(searchCard, Theme.BorderSoft, 0.65, 1)
+	controls.Search = Util.New("TextBox", {
+		Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -40, 1, 0),
+		BackgroundTransparency = 1, Text = "", PlaceholderText = "Buscar nome ou @usuário",
+		PlaceholderColor3 = Theme.Sub, TextColor3 = Theme.Text,
+		Font = Enum.Font.Gotham, TextSize = 9, ClearTextOnFocus = false,
+		MultiLine = false, TextXAlignment = Enum.TextXAlignment.Left,
+	}, searchCard)
+	controls.Clear = Util.New("TextButton", {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.fromOffset(30, 30), BackgroundTransparency = 1, Text = "×",
+		TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 14,
+		AutoButtonColor = false, Visible = false,
+	}, searchCard)
+	controls.TapSelect = Util.New("TextButton", {
+		Name = "AAP_PlayerTapSelect", Position = UDim2.new(1, -136, 0, 0),
+		Size = UDim2.fromOffset(104, 30), BackgroundColor3 = Theme.Card,
+		BackgroundTransparency = 0.15, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+	}, toolbar)
+	Util.Corner(controls.TapSelect, 10)
+	Util.Stroke(controls.TapSelect, Theme.BorderSoft, 0.65, 1)
+	Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.fromOffset(7, 0), Size = UDim2.new(1, -42, 1, 0),
+		BackgroundTransparency = 1, Text = "Toque no jogo", TextColor3 = Theme.Text,
+		Font = Enum.Font.GothamMedium, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left,
+	}, controls.TapSelect), 7, 8)
+	controls.TapSwitch = Util.New("Frame", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -7, 0.5, 0),
+		Size = UDim2.fromOffset(26, 16), BackgroundColor3 = Theme.Chip, BorderSizePixel = 0,
+	}, controls.TapSelect)
+	Util.Corner(controls.TapSwitch, 999)
+	controls.TapKnob = Util.New("Frame", {
+		Position = UDim2.fromOffset(3, 3), Size = UDim2.fromOffset(10, 10),
+		BackgroundColor3 = Theme.Muted, BorderSizePixel = 0,
+	}, controls.TapSwitch)
+	Util.Corner(controls.TapKnob, 999)
+	UI.TouchFeedback(controls.TapSelect)
+	controls.Help = UI.CreateHelpButton(toolbar, "Escolher jogadores",
+		"Focar escolhe essa pessoa e ativa a mira. Soltar volta à busca normal. Proteger impede que ela seja alvo.\n\nToque no jogo permite escolher um personagem tocando nele durante a partida. Arrastar a câmera não conta.\n\nA busca e os filtros organizam só esta lista; eles não mudam as regras da mira.",
+		UDim2.new(1, 0, 0, 1))
+	local filters = Util.New("Frame", {
+		Name = "AAP_PlayerFilters", Position = UDim2.fromOffset(0, 39),
+		Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Theme.Surface2,
+		BackgroundTransparency = 0.1, BorderSizePixel = 0,
+	}, toolbar)
+	Util.Corner(filters, 10)
+	controls.Filters = {}
+	local filterData = {{"ALL", "Todos"}, {"FOCUSED", "Em foco"}, {"PROTECTED", "Protegidos"}}
+	for index, data in ipairs(filterData) do
+		local button = Util.New("TextButton", {
+			Position = UDim2.new((index - 1) / 3, 2, 0, 2),
+			Size = UDim2.new(1 / 3, -4, 1, -4), BackgroundColor3 = Theme.Surface3,
+			BorderSizePixel = 0, Text = data[2], TextColor3 = Theme.Sub,
+			Font = Enum.Font.GothamMedium, TextSize = 8, AutoButtonColor = false,
+		}, filters)
+		Util.Corner(button, 8)
+		Util.FitText(button, 7, 9)
+		controls.Filters[data[1]] = button
+		UI.TouchFeedback(button)
+		button.Activated:Connect(function()
+			if State.UI.LayoutEditMode then return end
+			controls.Filter = data[1]
+			page.CanvasPosition = Vector2.zero
+			controls.Refresh()
+		end)
+	end
 	controls.Container = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1,
+		Name = "AAP_PlayerList", Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1,
 	}, page)
-
-	Util.New("UIGridLayout", {
-		CellPadding = UDim2.fromOffset(7, 7),
-		CellSize = UDim2.new(0.5, -4, 0, 82),
-		SortOrder = Enum.SortOrder.LayoutOrder,
+	Util.New("UIListLayout", {
+		Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder,
 	}, controls.Container)
-
-	function controls.Refresh()
-		UI.SetToggle(
-			controls.TapSelect,
-			Config.TapSelectPlayer
-		)
-
-		for _, child in ipairs(
-			controls.Container:GetChildren()
-		) do
-			if child:IsA("GuiObject") then
-				child:Destroy()
-			end
+	controls.Empty = Util.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 92), BackgroundColor3 = Theme.Card,
+		BackgroundTransparency = 0.45, BorderSizePixel = 0, LayoutOrder = 2, Visible = false,
+	}, page)
+	Util.Corner(controls.Empty, 12)
+	controls.EmptyTitle = Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.fromOffset(12, 16), Size = UDim2.new(1, -24, 0, 20),
+		BackgroundTransparency = 1, Text = "", TextColor3 = Theme.Text,
+		Font = Enum.Font.GothamMedium, TextSize = 10,
+	}, controls.Empty), 8, 11)
+	controls.EmptyHint = Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.fromOffset(12, 42), Size = UDim2.new(1, -24, 0, 30),
+		BackgroundTransparency = 1, Text = "", TextColor3 = Theme.Sub, TextWrapped = true,
+		Font = Enum.Font.Gotham, TextSize = 8,
+	}, controls.Empty), 7, 9)
+	local function createEntry(player)
+		local entry = {}
+		entry.Card = Util.New("Frame", {
+			Name = "Player_" .. tostring(player.UserId), Size = UDim2.new(1, 0, 0, 74),
+			BackgroundColor3 = Theme.Card, BackgroundTransparency = 0.12,
+			BorderSizePixel = 0, ClipsDescendants = true,
+		}, controls.Container)
+		Util.Corner(entry.Card, 12)
+		entry.Stroke = Util.Stroke(entry.Card, Theme.BorderSoft, 0.75, 1)
+		entry.Avatar = Util.New("ImageLabel", {
+			Size = UDim2.fromOffset(40, 40), BackgroundColor3 = Theme.Surface3,
+			BorderSizePixel = 0, Image = "",
+		}, entry.Card)
+		Util.Corner(entry.Avatar, 10)
+		entry.Name = Util.New("TextLabel", {
+			Position = UDim2.fromOffset(60, 10), BackgroundTransparency = 1,
+			Text = player.DisplayName, TextColor3 = Theme.Text, TextTruncate = Enum.TextTruncate.AtEnd,
+			Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+		}, entry.Card)
+		entry.Username = Util.New("TextLabel", {
+			Position = UDim2.fromOffset(60, 29), BackgroundTransparency = 1,
+			Text = "@" .. player.Name, TextColor3 = Theme.Sub, TextTruncate = Enum.TextTruncate.AtEnd,
+			Font = Enum.Font.Gotham, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left,
+		}, entry.Card)
+		entry.Detail = Util.New("TextLabel", {
+			Position = UDim2.fromOffset(60, 46), BackgroundTransparency = 1, Text = "",
+			TextColor3 = Theme.Sub, TextTruncate = Enum.TextTruncate.AtEnd,
+			Font = Enum.Font.GothamMedium, TextSize = 7, TextXAlignment = Enum.TextXAlignment.Left,
+		}, entry.Card)
+		for _, key in ipairs({"Focus", "Protect"}) do
+			entry[key] = Util.New("TextButton", {
+				BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.05,
+				BorderSizePixel = 0, Text = "", TextColor3 = Theme.Text,
+				Font = Enum.Font.GothamMedium, TextSize = 8, AutoButtonColor = false,
+			}, entry.Card)
+			Util.Corner(entry[key], 9)
+			Util.FitText(entry[key], 7, 9)
+			UI.TouchFeedback(entry[key])
 		end
-
-		local players = {}
-
+		entry.Focus.Activated:Connect(function()
+			if State.ManualAllies[player] or State.UI.LayoutEditMode then return end
+			UI.TogglePlayerFocus(player)
+		end)
+		entry.Protect.Activated:Connect(function()
+			if State.UI.LayoutEditMode then return end
+			UI.ToggleManualAlly(player)
+		end)
+		UI.LoadPlayerThumbnail(entry.Avatar, player)
+		return entry
+	end
+	function controls.Refresh()
+		if not Runtime.Alive or not page.Parent then return end
+		local players, present = {}, {}
+		local counts = {ALL = 0, FOCUSED = 0, PROTECTED = 0}
 		for _, player in ipairs(S.Players:GetPlayers()) do
 			if player ~= S.LocalPlayer then
 				players[#players + 1] = player
+				present[player] = true
+				counts.ALL += 1
+				if State.SelectedPlayers[player] then counts.FOCUSED += 1 end
+				if State.ManualAllies[player] then counts.PROTECTED += 1 end
 			end
 		end
-
 		table.sort(players, function(a, b)
-			local aName = string.lower(a.DisplayName)
-			local bName = string.lower(b.DisplayName)
-
-			if aName == bName then
-				return a.UserId < b.UserId
-			end
-
+			local aName, bName = string.lower(a.DisplayName), string.lower(b.DisplayName)
+			if aName == bName then return a.UserId < b.UserId end
 			return aName < bName
 		end)
-
-		for index, player in ipairs(players) do
-				local selected = State.SelectedPlayers[player] == true
-				local manualAlly = State.ManualAllies[player] == true
-
-				local card = Util.New("Frame", {
-					BackgroundColor3 = selected
-						and Theme.CardActive
-						or manualAlly
-						and RelationColors.ALLY:Lerp(Theme.Card, 0.72)
-						or Theme.Card,
-					BackgroundTransparency = 0.04,
-					BorderSizePixel = 0,
-					LayoutOrder = index,
-				}, controls.Container)
-
-				Util.Corner(card, 13)
-				Util.Sheen(card, 0.07)
-				Util.Stroke(
-					card,
-					selected and Theme.Accent2
-						or manualAlly and RelationColors.ALLY
-						or Theme.BorderInner,
-					(selected or manualAlly) and 0.12 or 0.68,
-					1
-				)
-
-				local selectionBar = Util.New("Frame", {
-					Position = UDim2.fromOffset(1, 9),
-					Size = UDim2.fromOffset(2, 64),
-					BackgroundColor3 = manualAlly
-						and RelationColors.ALLY
-						or Theme.Accent,
-					BackgroundTransparency =
-						(selected or manualAlly) and 0.04 or 0.90,
-					BorderSizePixel = 0,
-				}, card)
-				Util.Corner(selectionBar, 999)
-
-				local avatar = Util.New("ImageLabel", {
-					Position = UDim2.fromOffset(7, 8),
-					Size = UDim2.fromOffset(40, 40),
-					BackgroundColor3 = Theme.Surface3,
-					BorderSizePixel = 0,
-					Image = "",
-				}, card)
-				Util.Corner(avatar, 11)
-				Util.Stroke(avatar, Theme.BorderInner, 0.58, 1)
-
-				Util.FitText(Util.New("TextLabel", {
-					Position = UDim2.fromOffset(54, 7),
-					Size = UDim2.new(1, -62, 0, 17),
-					BackgroundTransparency = 1,
-					Text = player.DisplayName,
-					TextColor3 = Theme.Text,
-					Font = Enum.Font.GothamBold,
-					TextSize = 9,
-					TextXAlignment = Enum.TextXAlignment.Left,
-				}, card), 5, 10)
-
-				Util.FitText(Util.New("TextLabel", {
-					Position = UDim2.fromOffset(54, 27),
-					Size = UDim2.new(1, -62, 0, 14),
-					BackgroundTransparency = 1,
-					Text =
-						"@"
-						..
-						player.Name
-						..
-							" | "
-						..
-						(manualAlly and "PROTEGIDO" or Util.TeamName(player)),
-
-					TextColor3 =
-						Util.TeamColor(player),
-
-					Font = Enum.Font.Gotham,
-					TextSize = 7,
-					TextXAlignment = Enum.TextXAlignment.Left,
-				}, card), 5, 8)
-
-				local focusButton = Util.New("TextButton", {
-					Position = UDim2.fromOffset(7, 51),
-					Size = UDim2.new(0.5, -11, 0, 24),
-					BackgroundColor3 = selected and Theme.Accent or Theme.Surface3,
-					BackgroundTransparency = selected and 0.02 or 0.10,
-					BorderSizePixel = 0,
-					Text = selected and "EM FOCO" or "FOCAR",
-					TextColor3 = Theme.Text,
-					Font = Enum.Font.GothamBold,
-					TextSize = 7,
-					AutoButtonColor = false,
-				}, card)
-				Util.Corner(focusButton, 999)
-				Util.Stroke(
-					focusButton,
-					selected and Theme.Accent2 or Theme.BorderSoft,
-					0.45,
-					1
-				)
-				UI.TouchFeedback(focusButton)
-
-				local teamButton = Util.New("TextButton", {
-					Position = UDim2.new(0.5, 3, 0, 51),
-					Size = UDim2.new(0.5, -10, 0, 24),
-					BackgroundColor3 = manualAlly
-						and RelationColors.ALLY
-						or Theme.Surface3,
-					BackgroundTransparency = manualAlly and 0.02 or 0.10,
-					BorderSizePixel = 0,
-					Text = manualAlly and "PROTEGIDO" or "PROTEGER",
-					TextColor3 = manualAlly and Theme.Text or RelationColors.ALLY,
-					Font = Enum.Font.GothamBold,
-					TextSize = 7,
-					AutoButtonColor = false,
-				}, card)
-				Util.Corner(teamButton, 999)
-				Util.Stroke(
-					teamButton,
-					manualAlly and RelationColors.ALLY or Theme.BorderSoft,
-					manualAlly and 0.18 or 0.45,
-					1
-				)
-				UI.TouchFeedback(teamButton)
-
-				UI.LoadPlayerThumbnail(avatar, player)
-
-				focusButton.MouseButton1Click:
-					Connect(function()
-						if selected then
-							State.SelectedPlayers[player] = nil
-							if Config.AimMode == "SELECTED" then
-								Config.AimMode = "AUTO"
-							end
-							if State.CurrentTarget == player then
-								Aim.ClearCurrentTarget(
-									"Jogador desmarcado"
-								)
-							end
-							ESP.SafeRefresh(player)
-							if State.UI.RefreshPlayers then
-								State.UI.RefreshPlayers()
-							else
-								controls.Refresh()
-							end
-							if State.UI.RefreshAimControls then
-								State.UI.RefreshAimControls()
-							end
-							if State.UI.RefreshFilters then
-								State.UI.RefreshFilters()
-							end
-							UI.Toast(player.DisplayName .. " saiu do foco.")
-						else
-							UI.SelectExclusivePlayer(
-								player,
-								"Jogador escolhido na aba JOGADORES"
-							)
-						end
-					end)
-
-				teamButton.MouseButton1Click:Connect(function()
-					UI.ToggleManualAlly(player)
-				end)
+		for player, entry in pairs(controls.Entries) do
+			if not present[player] then entry.Card:Destroy(); controls.Entries[player] = nil end
 		end
+		local width = controls.Container.AbsoluteSize.X
+		if width <= 0 then width = math.max(page.AbsoluteSize.X - 19, 1) end
+		local shown = 0
+		for index, player in ipairs(players) do
+			local entry = controls.Entries[player]
+			if not entry then entry = createEntry(player); controls.Entries[player] = entry end
+			local selected, protected = State.SelectedPlayers[player] == true, State.ManualAllies[player] == true
+			local matchesFilter = controls.Filter == "ALL"
+				or controls.Filter == "FOCUSED" and selected
+				or controls.Filter == "PROTECTED" and protected
+			-- Plain search: punctuation in a display name is never interpreted as a Lua pattern.
+			local matchesQuery = controls.Query == ""
+				or string.find(string.lower(player.DisplayName), controls.Query, 1, true) ~= nil
+				or string.find(string.lower("@" .. player.Name), controls.Query, 1, true) ~= nil
+			entry.Card.Visible = matchesFilter and matchesQuery
+			entry.Card.LayoutOrder = index
+			if entry.Card.Visible then shown += 1 end
+			entry.Name.Text = player.DisplayName
+			entry.Username.Text = "@" .. player.Name
+			entry.Detail.Text = protected and "Protegido da mira" or selected and "Escolhido por você"
+				or ("Equipe: " .. Util.TeamName(player))
+			entry.Detail.TextColor3 = protected and RelationColors.ALLY or selected and Theme.Accent2 or Theme.Sub
+			entry.Card.BackgroundColor3 = selected and Theme.CardActive
+				or protected and RelationColors.ALLY:Lerp(Theme.Card, 0.92) or Theme.Card
+			entry.Stroke.Color = selected and Theme.AccentSoft or protected and RelationColors.ALLY or Theme.BorderSoft
+			entry.Stroke.Transparency = (selected or protected) and 0.42 or 0.75
+			entry.Focus.Text = selected and "Soltar" or "Focar"
+			entry.Focus.Active = not protected
+			entry.Focus.Selectable = not protected
+			entry.Focus.TextTransparency = protected and 0.65 or 0
+			entry.Focus.BackgroundColor3 = selected and Theme.AccentSoft or Theme.Surface3
+			entry.Protect.Text = protected and "Desproteger" or "Proteger"
+			entry.Protect.TextColor3 = protected and Theme.Text or RelationColors.ALLY
+			entry.Protect.BackgroundColor3 = protected and RelationColors.ALLY:Lerp(Theme.Surface3, 0.60) or Theme.Surface3
+			UI.LayoutPlayerEntry(entry, width)
+		end
+		controls.VisibleCount = shown
+		controls.Empty.Visible = shown == 0
+		controls.EmptyTitle.Text = counts.ALL == 0 and "Nenhum jogador por aqui"
+			or controls.Query ~= "" and "Nenhum jogador encontrado"
+			or controls.Filter == "FOCUSED" and "Nenhum jogador em foco"
+			or "Nenhum jogador protegido"
+		controls.EmptyHint.Text = counts.ALL == 0 and "Quem entrar na partida aparecerá aqui."
+			or controls.Query ~= "" and "Tente outro nome ou limpe a busca."
+			or controls.Filter == "FOCUSED" and "Em Todos, toque em Focar para escolher alguém."
+			or "Em Todos, toque em Proteger para ignorar alguém."
+		controls.Clear.Visible = controls.Search.Text ~= ""
+		for _, data in ipairs(filterData) do
+			local button = controls.Filters[data[1]]
+			local active = controls.Filter == data[1]
+			button.Text = data[2] .. " · " .. tostring(counts[data[1]])
+			button.BackgroundTransparency = active and 0 or 1
+			button.BackgroundColor3 = Theme.Surface3
+			button.TextColor3 = active and Theme.Text or Theme.Sub
+		end
+		controls.TapSelect.BackgroundColor3 = Config.TapSelectPlayer and Theme.CardActive or Theme.Card
+		controls.TapSwitch.BackgroundColor3 = Config.TapSelectPlayer and Theme.Accent or Theme.Chip
+		controls.TapKnob.BackgroundColor3 = Config.TapSelectPlayer and Theme.Text or Theme.Muted
+		controls.TapKnob.Position = UDim2.fromOffset(Config.TapSelectPlayer and 13 or 3, 3)
 	end
-
+	controls.Search:GetPropertyChangedSignal("Text"):Connect(function()
+		controls.SearchGeneration += 1
+		local generation = controls.SearchGeneration
+		controls.Clear.Visible = controls.Search.Text ~= ""
+		task.delay(0.08, function()
+			if generation ~= controls.SearchGeneration or not Runtime.Alive or not page.Parent then return end
+			controls.Query = string.lower(controls.Search.Text):match("^%s*(.-)%s*$")
+			page.CanvasPosition = Vector2.zero
+			controls.Refresh()
+		end)
+	end)
+	controls.Clear.Activated:Connect(function() controls.Search.Text = "" end)
+	controls.TapSelect.Activated:Connect(function()
+		if State.UI.LayoutEditMode then return end
+		UI.SetTapSelectPlayer(not Config.TapSelectPlayer)
+		UI.Toast(Config.TapSelectPlayer and "Seleção por toque ativada." or "Seleção por toque desativada.")
+	end)
+	page:GetPropertyChangedSignal("Visible"):Connect(function()
+		toolbar.Visible = page.Visible
+		if not page.Visible then controls.Search:ReleaseFocus(false) end
+	end)
+	local lastWidth = -1
+	local function layoutToolbar()
+		local narrow = toolbar.AbsoluteSize.X < 320
+		searchCard.Size = UDim2.new(1, narrow and 0 or -144, 0, 30)
+		controls.TapSelect.Position = narrow and UDim2.fromOffset(0, 37) or UDim2.new(1, -136, 0, 0)
+		controls.Help.Position = UDim2.new(1, 0, 0, narrow and 38 or 1)
+		filters.Position = UDim2.fromOffset(0, narrow and 76 or 39)
+		toolbar.Size = UDim2.new(1, -22, 0, narrow and 105 or 68)
+		page.Position = UDim2.fromOffset(3, narrow and 116 or 79)
+		page.Size = UDim2.new(1, -6, 1, narrow and -119 or -82)
+	end
+	toolbar:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutToolbar)
+	layoutToolbar()
+	controls.Container:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		local width = controls.Container.AbsoluteSize.X
+		if width == lastWidth then return end
+		lastWidth = width
+		for _, entry in pairs(controls.Entries) do UI.LayoutPlayerEntry(entry, width) end
+	end)
+	State.UI.PlayerDirectory = controls
+	State.UI.RefreshPlayerDirectory = controls.Refresh
 	State.UI.RefreshPlayers = function()
 		controls.Refresh()
 		UI.RefreshTargetSidebar()
 	end
-
-	controls.TapSelect.Card.MouseButton1Click:Connect(function()
-		UI.SetTapSelectPlayer(not Config.TapSelectPlayer)
-		UI.Toast(
-			Config.TapSelectPlayer
-				and "Seleção por toque ativada."
-				or "Seleção por toque desativada."
-		)
-	end)
-
 	State.UI.RefreshPlayers()
-
 	return page
 end
 
@@ -13861,7 +13784,7 @@ function UI.PlayerFromWorldInstance(instance)
 end
 
 function UI.IsPointOverInteractiveUI(screenPoint, includeExternalButtons)
-	if State.UI.ActiveHelpDialog then return true end
+	if State.UI.ActiveHelpDialog or State.UI.ActiveChoiceMenu then return true end
 	local function inside(guiObject)
 		if not guiObject
 			or not guiObject.Parent
@@ -16067,6 +15990,7 @@ function Runtime.Cleanup()
 	Runtime.Alive = false
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(false) end
 	UI.CloseHelpDialog()
+	UI.CloseChoiceMenu()
 	Runtime.ActiveRenderPriority = nil
 	UI.ActiveSlider = nil
 	UI.ActiveSliderInput = nil
@@ -16232,4 +16156,4 @@ ESP.RefreshAll()
 StartLoops()
 StartRender()
 
-print("[Aim Assist Pro V34.1.0 - Ajuste numérico e ajuda] carregado")
+print("[Aim Assist Pro V34.2.0 - Jogadores e interface] carregado")
