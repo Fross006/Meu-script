@@ -1,4 +1,4 @@
--- V34.3.0 — configurações reconstruídas com início, busca e grupos por assunto.
+-- V34.4.0 — aba Armas reconstruída com seleção de arma, intensidade e valores atuais.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -5669,7 +5669,7 @@ end
 local function activePageName()
 	local labels = {
 		Aim = "MIRA",
-		Assistant = "PERFIS",
+		Assistant = "ARMAS",
 		Body = "CORPO",
 		Players = "JOGADORES",
 		ESP = "ESP",
@@ -7487,7 +7487,7 @@ local function BuildVisionRootUI()
 		Position = UDim2.fromOffset(9, 5),
 		Size = UDim2.new(1, -18, 0, 15),
 		BackgroundTransparency = 1,
-		Text = "PERFIL ATUAL",
+		Text = "AJUSTE ATUAL",
 		TextColor3 = Theme.Text,
 		Font = Enum.Font.GothamBold,
 		TextSize = 7,
@@ -9531,7 +9531,7 @@ function Pages.BuildVisionAim()
 				State.UI.RefreshEngineControls()
 			end
 			controls.Refresh()
-			UI.Toast("Perfil aplicado: " .. data.Title)
+			UI.Toast("Ajuste aplicado: " .. data.Title)
 		end
 	end
 
@@ -9623,7 +9623,7 @@ function Pages.BuildVisionAim()
 		BackgroundColor3 = Theme.Card,
 		BackgroundTransparency = 0.03,
 		BorderSizePixel = 0,
-		Text = "REAPLICAR PERFIL ESCOLHIDO",
+		Text = "REAPLICAR AJUSTE",
 		TextColor3 = Theme.Text,
 		Font = Enum.Font.GothamBold,
 		TextSize = 7,
@@ -9851,7 +9851,7 @@ function Pages.BuildVisionAim()
 				State.UI.RefreshEngineControls()
 			end
 			controls.Refresh()
-			UI.Toast("Perfil atual aplicado")
+			UI.Toast("Ajuste atual aplicado")
 		end
 	end)
 
@@ -9867,378 +9867,300 @@ function Pages.BuildVisionAim()
 	return page
 end
 
+function UI.CreateWeaponGlyph(parent, key)
+	local box = Util.New("Frame", {
+		Size = UDim2.fromOffset(30, 30), BackgroundColor3 = Theme.Surface3,
+		BackgroundTransparency = .15, BorderSizePixel = 0,
+	}, parent)
+	Util.Corner(box, 9)
+	local parts = {}
+	local function part(x, y, w, h, rotation)
+		local shape = Util.New("Frame", {
+			Position = UDim2.fromScale(x, y), Size = UDim2.fromScale(w, h),
+			BackgroundColor3 = Theme.Sub, BorderSizePixel = 0, Rotation = rotation or 0,
+		}, box)
+		Util.New("UICorner", {CornerRadius = UDim.new(0, 1)}, shape)
+		parts[#parts + 1] = shape
+	end
+	if key == "PROJECTILE" then
+		part(.21,.47,.60,.065); part(.66,.37,.22,.065,35); part(.66,.56,.22,.065,-35)
+		part(.20,.34,.11,.065,38); part(.20,.62,.11,.065,-38)
+	elseif key == "PISTOL" then
+		part(.20,.32,.59,.16); part(.22,.48,.17,.29,12); part(.36,.48,.23,.06)
+	else
+		local scoped = key == "SNIPER" or key == "DMR"
+		part(.12,.41,.18,.17); part(.29,.40,.35,.15)
+		part(.62,.43,key == "SMG" and .17 or .27,.06)
+		part(.40,.53,.10,.22,15)
+		if key == "SHOTGUN" then part(.62,.51,.22,.07)
+		elseif key == "LMG" then part(.53,.53,.22,.23)
+		else part(.54,.53,.10,.22,-10) end
+		if scoped then part(.38,.25,.23,.075); part(.45,.31,.055,.09) end
+	end
+	return {Box = box, Parts = parts}
+end
+
+function UI.CreateArmChoice(parent, label, description, weaponKey, level)
+	local card = Util.New("TextButton", {
+		BackgroundColor3 = Theme.Card, BackgroundTransparency = .10, BorderSizePixel = 0,
+		Text = "", AutoButtonColor = false,
+	}, parent)
+	Util.Corner(card, 12)
+	local control = {Card = card, Stroke = Util.Stroke(card, Theme.BorderSoft, .7, 1)}
+	local titleX = weaponKey and 50 or 14
+	control.Title = UI.SettingsText(card, label, UDim2.fromOffset(titleX, 12), UDim2.new(1, -(titleX + 32), 0, 19), 10, Theme.Text, true)
+	Util.FitText(control.Title, 8, 11)
+	control.Description = UI.SettingsText(card, description, UDim2.fromOffset(14, weaponKey and 47 or 38), UDim2.new(1, -28, 0, 27), 8, Theme.Sub)
+	control.Description.TextWrapped = true
+	control.Description.TextTruncate = Enum.TextTruncate.None
+	Util.FitText(control.Description, 7, 9)
+	control.Radio = Util.New("Frame", {
+		Position = UDim2.new(1, -25, 0, 15), Size = UDim2.fromOffset(12, 12),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .1, BorderSizePixel = 0,
+	}, card)
+	Util.Corner(control.Radio, 999)
+	control.RadioStroke = Util.Stroke(control.Radio, Theme.Muted, .25, 1)
+	control.Check = Util.New("Frame", {
+		AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+		Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Theme.Accent2, BorderSizePixel = 0, Visible = false,
+	}, control.Radio)
+	Util.Corner(control.Check, 999)
+	if weaponKey then
+		control.Glyph = UI.CreateWeaponGlyph(card, weaponKey)
+		control.Glyph.Box.Position = UDim2.fromOffset(12, 8)
+	end
+	if level then
+		control.LevelDots = {}
+		for index = 1, 4 do
+			local dot = Util.New("Frame", {
+				Position = UDim2.new(0, 14 + (index - 1) * 10, 1, -14), Size = UDim2.fromOffset(5, 5),
+				BackgroundColor3 = index <= level and Theme.Accent2 or Theme.Muted,
+				BackgroundTransparency = index <= level and .1 or .7, BorderSizePixel = 0,
+			}, card)
+			Util.Corner(dot, 999)
+			control.LevelDots[#control.LevelDots + 1] = dot
+		end
+	end
+	UI.TouchFeedback(card)
+	return control
+end
+
+function UI.SetArmChoiceSelected(control, selected)
+	control.Card.BackgroundColor3 = selected and Theme.CardActive or Theme.Card
+	control.Card.BackgroundTransparency = selected and .04 or .14
+	control.Stroke.Color = selected and Theme.Accent or Theme.BorderSoft
+	control.Stroke.Transparency = selected and .22 or .72
+	control.Check.Visible = selected
+	control.RadioStroke.Color = selected and Theme.Accent2 or Theme.Muted
+	control.Title.TextColor3 = selected and Theme.Accent2 or Theme.Text
+	if control.Glyph then
+		control.Glyph.Box.BackgroundColor3 = selected and Theme.AccentSoft or Theme.Surface3
+		for _, part in ipairs(control.Glyph.Parts) do part.BackgroundColor3 = selected and Theme.Accent2 or Theme.Sub end
+	end
+end
+
 function Pages.BuildAssistant()
 	local page = UI.CreatePage("Assistant")
-	local assistantDefinition = Persistence.DefaultConfig.AimAssistant
-	local controls = {
-		WeaponCards = {},
-		ModeCards = {},
+	page:SetAttribute("AAPHideScrollCue", true)
+	page.Position = UDim2.fromOffset(3, 91)
+	page.Size = UDim2.new(1, -6, 1, -94)
+	page.ScrollBarThickness = 3
+	local definition = Persistence.DefaultConfig.AimAssistant
+	local controls = {WeaponCards = {}, ModeCards = {}, Metrics = {}, Scroll = {}, Active = "WEAPON", Generation = 0}
+	local weaponText = {
+		RIFLE = {"Rifle", "Uso geral e média distância."},
+		SMG = {"SMG", "Submetralhadora para combate próximo."},
+		SNIPER = {"Sniper", "Tiros precisos de longa distância."},
+		SHOTGUN = {"Escopeta", "Ajuda para confrontos bem próximos."},
+		PISTOL = {"Pistola", "Controle em tiros individuais."},
+		DMR = {"DMR", "Rifle semiautomático para tiros em sequência."},
+		LMG = {"Metralhadora", "Acompanha o alvo durante rajadas longas."},
+		PROJECTILE = {"Arco / lançador", "Antecipação para projéteis lentos."},
 	}
-
-	UI.Section(
-		page,
-		"PERFIL RÁPIDO",
-		"Escolha sua arma e a força da ajuda. O restante fica pronto sozinho."
-	)
-
-	local statusCard = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 92),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BorderSizePixel = 0,
-	}, page)
-	Util.Corner(statusCard, 15)
-	Util.GlassGradient(
-		statusCard,
-		Color3.fromRGB(56, 22, 34),
-		Color3.fromRGB(17, 15, 22),
-		0.02,
-		0.01,
-		90
-	)
-	Util.InnerHighlight(statusCard, 13, 0.87)
-	controls.StatusStroke =
-		Util.Stroke(
-			statusCard,
-			Theme.Accent,
-			0.22,
-			1
-		)
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(13, 9),
-		Size = UDim2.new(1, -104, 0, 14),
-		BackgroundTransparency = 1,
-		Text = "PERFIL ESCOLHIDO",
-		TextColor3 = Theme.Dim,
-		Font = Enum.Font.GothamBold,
-		TextSize = 6,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, statusCard)
-
-	controls.StatusChip = Util.New("TextLabel", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -11, 0, 9),
-		Size = UDim2.fromOffset(78, 22),
-		BackgroundColor3 = Theme.Chip,
-		BorderSizePixel = 0,
-		Text = "PRONTO",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 6,
-	}, statusCard)
-	Util.Corner(controls.StatusChip, 10)
-	Util.Sheen(controls.StatusChip, 0.08)
-	Util.Stroke(controls.StatusChip, Theme.BorderSoft, 0.60, 1)
-
-	controls.StatusTitle = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(13, 29),
-		Size = UDim2.new(1, -26, 0, 22),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 10,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, statusCard)
-
-	controls.StatusText = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(13, 55),
-		Size = UDim2.new(1, -26, 0, 30),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham,
-		TextSize = 7,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-	}, statusCard)
-
-	local function createChoiceCard(parent, title, description)
-		local card = Util.New("TextButton", {
-			BackgroundColor3 = Theme.Card,
-			BackgroundTransparency = 0.04,
-			BorderSizePixel = 0,
-			Text = "",
-			AutoButtonColor = false,
-		}, parent)
-		Util.Corner(card, 13)
-		Util.Sheen(card, 0.07)
-
-		local stroke = Util.Stroke(
-			card,
-			Theme.BorderInner,
-			0.68,
-			1
-		)
-
-		local titleLabel = Util.New("TextLabel", {
-			Position = UDim2.fromOffset(13, 8),
-			Size = UDim2.new(1, -26, 0, 16),
-			BackgroundTransparency = 1,
-			Text = title,
-			TextColor3 = Theme.Text,
-			Font = Enum.Font.GothamBold,
-			TextSize = 8,
-			TextXAlignment = Enum.TextXAlignment.Left,
-		}, card)
-
-		local descriptionLabel = Util.New("TextLabel", {
-			Position = UDim2.fromOffset(13, 27),
-			Size = UDim2.new(1, -23, 0, 27),
-			BackgroundTransparency = 1,
-			Text = description,
-			TextColor3 = Theme.Sub,
-			Font = Enum.Font.Gotham,
-			TextSize = 7,
-			TextWrapped = true,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextYAlignment = Enum.TextYAlignment.Top,
-		}, card)
-
-		UI.TouchFeedback(card)
-
-		return {
-			Card = card,
-			Stroke = stroke,
-			Title = titleLabel,
-			Description = descriptionLabel,
-		}
+	local modeText = {
+		SOFT = {"Suave", "Correção leve, com movimentos mais suaves."},
+		BALANCED = {"Equilibrado", "Correção moderada para uso geral."},
+		STRONG = {"Forte", "Correção alta e movimento mais rápido."},
+		MAXIMUM = {"Máximo", "Correção máxima e resposta imediata."},
+	}
+	local toolbar = Util.New("Frame", {
+		Name = "AAP_ArmsToolbar", Position = UDim2.fromOffset(7, 4), Size = UDim2.new(1, -22, 0, 80),
+		BackgroundTransparency = 1, Visible = page.Visible,
+	}, page.Parent)
+	controls.Toolbar = toolbar
+	local title = UI.SettingsText(toolbar, "Mira por arma", UDim2.fromOffset(2, 0), UDim2.new(1, -140, 0, 22), 12, Theme.Text, true)
+	Util.FitText(title, 8, 13)
+	controls.StatusChip = UI.SettingsText(toolbar, "", UDim2.new(1, -133, 0, 1), UDim2.fromOffset(96, 21), 8, Theme.Sub, true)
+	controls.StatusChip.BackgroundColor3 = Theme.Surface3
+	controls.StatusChip.BackgroundTransparency = .2
+	controls.StatusChip.TextXAlignment = Enum.TextXAlignment.Center
+	Util.Corner(controls.StatusChip, 999)
+	controls.Help = UI.CreateHelpButton(toolbar, "Ajustar a mira por arma",
+		"Escolha a arma mais parecida com a sua e a intensidade da assistência. Cada toque aplica a combinação imediatamente.\n\nO ajuste inclui FOV, precisão, suavidade, previsão, parte do corpo e checagem de paredes. Para alterar um valor separadamente, use Mira ou Corpo.", UDim2.new(1, 0, 0, -3))
+	controls.Summary = UI.SettingsText(toolbar, "", UDim2.fromOffset(2, 27), UDim2.new(1, -4, 0, 18), 10, Theme.Sub)
+	Util.FitText(controls.Summary, 8, 11)
+	local navigation = Util.New("Frame", {
+		Position = UDim2.fromOffset(0, 53), Size = UDim2.new(1, 0, 0, 27),
+		BackgroundColor3 = Theme.Surface2, BackgroundTransparency = .10, BorderSizePixel = 0,
+	}, toolbar)
+	Util.Corner(navigation, 10)
+	controls.Tabs = {}
+	for index, data in ipairs({{"WEAPON", "Escolher arma"}, {"MODE", "Intensidade"}}) do
+		local button = Util.New("TextButton", {
+			Position = UDim2.new((index - 1) * .5, 2, 0, 2), Size = UDim2.new(.5, -4, 1, -4),
+			BackgroundColor3 = Theme.CardActive, BorderSizePixel = 0, Text = data[2], TextColor3 = Theme.Text,
+			Font = Enum.Font.GothamMedium, TextSize = 9, AutoButtonColor = false,
+		}, navigation)
+		Util.Corner(button, 9)
+		controls.Tabs[data[1]] = button
+		UI.TouchFeedback(button)
+		button.Activated:Connect(function() controls.Show(data[1]) end)
 	end
-
-	local function setChoiceSelected(control, selected)
-		control.Card.BackgroundColor3 =
-			selected
-			and Theme.CardActive
-			or Theme.Card
-
-		control.Stroke.Color =
-			selected
-			and Theme.Accent2
-			or Theme.BorderInner
-
-		control.Stroke.Transparency =
-			selected
-			and 0.10
-			or 0.68
-
-		control.Title.TextColor3 = selected and Theme.Accent2 or Theme.Text
+	local function pane(name, heading, description)
+		local holder = Util.New("Frame", {
+			Name = name, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1, Visible = false, LayoutOrder = 10,
+		}, page)
+		Util.New("UIListLayout", {Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder}, holder)
+		local intro = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = 1}, holder)
+		UI.SettingsText(intro, heading, UDim2.fromOffset(2, 0), UDim2.new(1, -4, 0, 18), 10, Theme.Text, true)
+		Util.FitText(UI.SettingsText(intro, description, UDim2.fromOffset(2, 23), UDim2.new(1, -4, 0, 14), 8, Theme.Sub), 7, 9)
+		local grid = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, LayoutOrder = 2}, holder)
+		return holder, grid
 	end
-
-	local function refreshLinkedControls()
-		for _, callback in ipairs({
-			State.UI.RefreshAimControls,
-			State.UI.RefreshBodyControls,
-			State.UI.RefreshEngineControls,
-		}) do
-			if callback then
-				callback()
-			end
+	controls.WeaponPane, controls.WeaponGrid = pane("AAP_WeaponChoices", "Qual arma você está usando?", "Toque para aplicar os ajustes desse tipo de arma.")
+	controls.ModePane, controls.ModeGrid = pane("AAP_IntensityChoices", "Quanto a mira deve ajudar?", "A intensidade também muda a velocidade da resposta.")
+	local values, detailsGroup = UI.CreateExpandableGroup(page, "Ver ajustes atuais", "Veja o que está em uso.", false)
+	detailsGroup.Shell.LayoutOrder = 20
+	controls.DetailsGroup = detailsGroup
+	controls.ValuesNote = UI.SettingsText(values, "", UDim2.new(), UDim2.new(1, 0, 0, 31), 8, Theme.Sub)
+	controls.ValuesNote.TextWrapped = true
+	controls.ValuesNote.LayoutOrder = 1
+	local metrics = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 60), BackgroundTransparency = 1, LayoutOrder = 2}, values)
+	controls.MetricsHolder = metrics
+	for index, data in ipairs({{"FOV", "Área de busca"}, {"Accuracy", "Precisão"}, {"Smoothing", "Suavidade"}}) do
+		local box = Util.New("Frame", {
+			Position = UDim2.new((index - 1) / 3, 0, 0, 0), Size = UDim2.new(1 / 3, -5, 0, 60),
+			BackgroundColor3 = Theme.Card, BackgroundTransparency = .1, BorderSizePixel = 0,
+		}, metrics)
+		Util.Corner(box, 10)
+		local label = UI.SettingsText(box, data[2], UDim2.fromOffset(8, 8), UDim2.new(1, -16, 0, 14), 8, Theme.Sub)
+		Util.FitText(label, 7, 8)
+		local value = UI.SettingsText(box, "", UDim2.fromOffset(8, 29), UDim2.new(1, -16, 0, 20), 12, Theme.Text, true)
+		Util.FitText(value, 8, 13)
+		controls.Metrics[data[1]] = value
+	end
+	controls.BodyDetail = UI.SettingsText(values, "", UDim2.new(), UDim2.new(1, 0, 0, 24), 9, Theme.Sub)
+	controls.BodyDetail.LayoutOrder = 3
+	controls.PredictionDetail = UI.SettingsText(values, "", UDim2.new(), UDim2.new(1, 0, 0, 24), 9, Theme.Sub)
+	controls.PredictionDetail.LayoutOrder = 4
+	local function labelFor(data, key, definitions, fallback)
+		return data[key] and data[key][1] or definitions[key] and definitions[key].Label or fallback
+	end
+	function controls.Apply(weaponKey, modeKey)
+		if not Runtime.Alive or State.UI.LayoutEditMode or not page.Parent then return false end
+		if not Aim.ApplyAssistantPreset(weaponKey, modeKey) then
+			UI.Toast("Não foi possível aplicar esta combinação.")
+			return false
 		end
-
+		for _, name in ipairs({"RefreshAimControls", "RefreshBodyControls", "RefreshEngineControls"}) do
+			local refresh = State.UI[name]
+			if refresh then refresh() end
+		end
 		UI.RefreshQuick()
+		controls.Refresh()
+		UI.Toast("Ajuste aplicado: " .. labelFor(weaponText, weaponKey, definition.Weapons, "Arma") .. " · " .. labelFor(modeText, modeKey, definition.Modes, "Intensidade"))
+		return true
 	end
-
-	UI.Section(
-		page,
-		"1. TIPO DE ARMA",
-		"Escolha a opção mais parecida com a arma que você está usando."
-	)
-
-	local weaponGrid = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 280),
-		BackgroundTransparency = 1,
-	}, page)
-
-	Util.New("UIGridLayout", {
-		CellSize = UDim2.new(0.5, -4, 0, 64),
-		CellPadding = UDim2.fromOffset(8, 8),
-		FillDirectionMaxCells = 2,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, weaponGrid)
-
-	for index, key in ipairs(assistantDefinition.WeaponOrder) do
-		local data = assistantDefinition.Weapons[key]
-		local control = createChoiceCard(
-			weaponGrid,
-			data.Label,
-			data.Description
-		)
-
-		control.Card.LayoutOrder = index
+	for index, key in ipairs(definition.WeaponOrder) do
+		local data = definition.Weapons[key]
+		local text = weaponText[key] or {data.Label, data.Description}
+		local control = UI.CreateArmChoice(controls.WeaponGrid, text[1], text[2], key)
 		controls.WeaponCards[key] = control
-
-		control.Card.MouseButton1Click:
-			Connect(function()
-				local assistant = Config.AimAssistant
-				if Aim.ApplyAssistantPreset(
-					key,
-					assistant.Mode
-				) then
-
-					refreshLinkedControls()
-					controls.Refresh()
-
-					UI.Toast(
-						"Perfil aplicado: "
-						.. data.Label
-						.. " • "
-						.. assistant.Modes[assistant.Mode].Label
-					)
-				end
-			end)
-	end
-
-	UI.Section(
-		page,
-		"2. FORÇA DA AJUDA",
-		"Suave corrige menos. Forte e Máximo respondem mais rápido."
-	)
-
-	local modeGrid = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 148),
-		BackgroundTransparency = 1,
-	}, page)
-
-	Util.New("UIGridLayout", {
-		CellSize = UDim2.new(0.5, -4, 0, 70),
-		CellPadding = UDim2.fromOffset(8, 8),
-		FillDirectionMaxCells = 2,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, modeGrid)
-
-	for index, key in ipairs(assistantDefinition.ModeOrder) do
-		local data = assistantDefinition.Modes[key]
-		local control = createChoiceCard(
-			modeGrid,
-			data.Label,
-			data.Description
-		)
-
 		control.Card.LayoutOrder = index
+		control.Card.Activated:Connect(function() controls.Apply(key, Config.AimAssistant.Mode) end)
+	end
+	for index, key in ipairs(definition.ModeOrder) do
+		local data = definition.Modes[key]
+		local text = modeText[key] or {data.Label, data.Description}
+		local control = UI.CreateArmChoice(controls.ModeGrid, text[1], text[2], nil, index)
 		controls.ModeCards[key] = control
-
-		control.Card.MouseButton1Click:
-			Connect(function()
-				local assistant = Config.AimAssistant
-				if Aim.ApplyAssistantPreset(
-					assistant.Weapon,
-					key
-				) then
-
-					refreshLinkedControls()
-					controls.Refresh()
-
-					UI.Toast(
-						"Perfil aplicado: "
-						.. assistant.Weapons[assistant.Weapon].Label
-						.. " • "
-						.. data.Label
-					)
-				end
-			end)
+		control.Card.LayoutOrder = index
+		control.Card.Activated:Connect(function() controls.Apply(Config.AimAssistant.Weapon, key) end)
 	end
-
-	local notice = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 68),
-		BackgroundColor3 = Theme.Surface2,
-		BackgroundTransparency = 0.04,
-		BorderSizePixel = 0,
-	}, page)
-	Util.Corner(notice, 14)
-	Util.Sheen(notice, 0.08)
-	Util.Stroke(notice, Theme.BorderInner, 0.68, 1)
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(12, 8),
-		Size = UDim2.new(1, -24, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "ISSO NÃO MUDA SEUS JOGADORES",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, notice)
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(12, 27),
-		Size = UDim2.new(1, -24, 0, 34),
-		BackgroundTransparency = 1,
-		Text = "Só os ajustes da mira são alterados. Jogadores protegidos, alvo escolhido e ESP continuam como estão.",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham,
-		TextSize = 7,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-	}, notice)
-
+	function controls.Layout()
+		local function gridLayout(holder, order, cards, mode)
+			local width = holder.AbsoluteSize.X
+			local columns = width >= (mode and 420 or 350) and 2 or 1
+			if not mode and width >= 660 then columns = 3 end
+			local height = math.max(math.floor((mode and 98 or 92) * Config.ControlScale + .5), mode and 86 or 80)
+			for index, key in ipairs(order) do
+				local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
+				local card = cards[key].Card
+				card.Position = UDim2.new(column / columns, 8 * column / columns, 0, row * (height + 8))
+				card.Size = UDim2.new(1 / columns, -8 * (columns - 1) / columns, 0, height)
+			end
+			holder.Size = UDim2.new(1, 0, 0, math.ceil(#order / columns) * (height + 8) - 8)
+		end
+		gridLayout(controls.WeaponGrid, definition.WeaponOrder, controls.WeaponCards, false)
+		gridLayout(controls.ModeGrid, definition.ModeOrder, controls.ModeCards, true)
+	end
+	function controls.Show(key)
+		if not Runtime.Alive or not page.Parent then return end
+		if key ~= "MODE" then key = "WEAPON" end
+		controls.Scroll[controls.Active] = page.CanvasPosition.Y
+		controls.Active = key
+		controls.WeaponPane.Visible = key == "WEAPON"
+		controls.ModePane.Visible = key == "MODE"
+		for tabKey, button in pairs(controls.Tabs) do
+			local selected = tabKey == key
+			button.BackgroundTransparency = selected and .05 or 1
+			button.TextColor3 = selected and Theme.Accent2 or Theme.Sub
+		end
+		controls.Generation += 1
+		local generation = controls.Generation
+		controls.Layout()
+		task.defer(function()
+			S.RunService.Heartbeat:Wait()
+			if Runtime.Alive and page.Parent and generation == controls.Generation then page.CanvasPosition = Vector2.new(0, controls.Scroll[key] or 0) end
+		end)
+	end
 	function controls.Refresh()
+		if not Runtime.Alive or not page.Parent then return end
 		local assistant = Config.AimAssistant
-		local weapon =
-			assistant.Weapons[assistant.Weapon]
-			or assistant.Weapons.RIFLE
-
-		local mode =
-			assistant.Modes[assistant.Mode]
-			or assistant.Modes.BALANCED
-
+		local weapon = labelFor(weaponText, assistant.Weapon, definition.Weapons, "Arma")
+		local mode = labelFor(modeText, assistant.Mode, definition.Modes, "Intensidade")
+		controls.Summary.Text = weapon .. " · " .. mode
+		controls.StatusChip.Text = not assistant.Applied and "Não aplicado" or assistant.Customized and "Personalizado" or "Aplicado"
+		controls.StatusChip.TextColor3 = assistant.Applied and Theme.Accent2 or Theme.Sub
+		controls.StatusChip.BackgroundColor3 = assistant.Applied and Theme.AccentSoft or Theme.Surface3
+		controls.ValuesNote.Text = assistant.Applied and assistant.Customized and "Você alterou valores depois de aplicar a combinação."
+			or assistant.Applied and "Valores aplicados à mira agora." or "Valores atuais. Escolha uma arma para aplicar a combinação."
+		for key, control in pairs(controls.WeaponCards) do UI.SetArmChoiceSelected(control, key == assistant.Weapon) end
+		for key, control in pairs(controls.ModeCards) do UI.SetArmChoiceSelected(control, key == assistant.Mode) end
+		controls.Metrics.FOV.Text = tostring(math.floor(Config.FOV + .5)) .. " px"
+		controls.Metrics.Accuracy.Text = tostring(math.floor(Config.Accuracy + .5)) .. "%"
+		controls.Metrics.Smoothing.Text = tostring(math.floor(Config.Smoothing + .5)) .. "%"
 		local region = BodyRegions[Config.PrimaryBodyRegion]
-		local focusLabel = region and region.Label or "ALVO"
-		local predictionLabel = "DESATIVADA"
-
-		if Config.Prediction then
-			predictionLabel =
-				Config.PredictionMode == "MANUAL"
-				and "MANUAL"
-				or "AUTOMÁTICA"
+		controls.BodyDetail.Text = "Parte do corpo: " .. (region and region.Label or "Padrão")
+		controls.PredictionDetail.Text = "Previsão: " .. (not Config.Prediction and "desativada" or Config.PredictionMode == "MANUAL" and "manual" or "automática")
+		for tabKey, button in pairs(controls.Tabs) do
+			button.TextColor3 = tabKey == controls.Active and Theme.Accent2 or Theme.Sub
 		end
-
-		for key, control in pairs(controls.WeaponCards) do
-			setChoiceSelected(
-				control,
-				key == assistant.Weapon
-			)
-		end
-
-		for key, control in pairs(controls.ModeCards) do
-			setChoiceSelected(
-				control,
-				key == assistant.Mode
-			)
-		end
-
-		controls.StatusTitle.Text =
-			weapon.Label
-				.. " • "
-			.. mode.Label
-
-		if assistant.Applied then
-			controls.StatusChip.Text =
-				assistant.Customized
-				and "AJUSTADO"
-				or "APLICADO"
-			controls.StatusChip.BackgroundColor3 = Theme.AccentSoft
-			controls.StatusChip.TextColor3 =
-				Theme.Text
-
-			controls.StatusText.Text =
-				"Perfil aplicado.\nParte: "
-				.. focusLabel
-				.. " • Previsão: "
-				.. predictionLabel
-		else
-			controls.StatusChip.Text = "PRONTO"
-			controls.StatusChip.BackgroundColor3 = Theme.Chip
-			controls.StatusChip.TextColor3 = Theme.Sub
-			controls.StatusText.Text =
-				"Escolha uma arma e a força da ajuda para aplicar o perfil."
-		end
+		controls.Layout()
 	end
-
+	local lastWidth = -1
+	page:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if page.AbsoluteSize.X ~= lastWidth then lastWidth = page.AbsoluteSize.X; controls.Layout() end
+	end)
+	page:GetPropertyChangedSignal("Visible"):Connect(function()
+		toolbar.Visible = page.Visible
+		if page.Visible then controls.Refresh() end
+	end)
+	State.UI.ArmsControls = controls
 	State.UI.RefreshAssistantControls = controls.Refresh
+	controls.Show("WEAPON")
 	controls.Refresh()
-
 	return page
 end
 
@@ -12185,9 +12107,9 @@ function Pages.BuildEngine()
 		UI.CreateCycle(
 			grid,
 			"Ajuste fino da arma",
-			"Muda só a resposta da arma. Para configurar tudo de uma vez, use Perfis.",
+			"Muda só a resposta da arma. Para configurar tudo de uma vez, use Armas.",
 			{
-				Help = "Este atalho altera apenas o comportamento usado para acompanhar disparos. A aba Perfis também ajusta FOV, precisão, suavidade e parte do corpo.",
+				Help = "Este atalho altera apenas o comportamento usado para acompanhar disparos. A aba Armas também ajusta FOV, precisão, suavidade e parte do corpo.",
 			}
 		)
 
@@ -14551,7 +14473,7 @@ local function BuildNavigation()
 
 	State.UI.Nav = {
 		Aim = UI.CreateNavButton("MIRA"),
-		Assistant = UI.CreateNavButton("PERFIS"),
+		Assistant = UI.CreateNavButton("ARMAS"),
 		Body = UI.CreateNavButton("CORPO"),
 		Players = UI.CreateNavButton("JOGADORES"),
 		ESP = UI.CreateNavButton("ESP"),
@@ -16298,4 +16220,4 @@ ESP.RefreshAll()
 StartLoops()
 StartRender()
 
-print("[Aim Assist Pro V34.3.0 - Configurações redesenhadas] carregado")
+print("[Aim Assist Pro V34.4.0 - Armas e intensidade] carregado")
