@@ -1,6 +1,10 @@
--- V33.19.0: correções de gesto, recuperação da mira, pontos do corpo,
--- configurações, interface e cache. Todas as opções anteriores preservadas.
--- Compilação e regressões isoladas verificadas; teste no jogo ainda necessário.
+-- V34.1.0 — ajuste numérico nos sliders e ajuda redesenhada.
+-- Toque no valor para digitar ou use + / − para ajustar uma unidade.
+-- Limites, valores salvos e callbacks das opções preservados.
+-- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
+-- Cada novo trecho do deslize pode trocar de alvo sem soltar o dedo.
+-- Toque parado não repete a troca; aquisição e mira continuam independentes.
+-- Demais opções e configurações existentes preservadas.
 --==============================================================
 -- SERVICES / ROOT STATE
 --==============================================================
@@ -95,7 +99,8 @@ local Config = {
 	TapSelectMoveThreshold = 14,
 	TapSelectMaxDuration = 0.46,
 	MobileFriendlySwitch = false,
-	MobileFriendlyMoveThreshold = 42,
+	MobileFriendlyMoveThreshold = 36,
+	MobileFriendlyInvertGesture = false,
 	MobileFriendlyRadius = 165,
 	MobileFriendlyHorizontalRatio = 1.05,
 	MobileFriendlyStartArea = 0.28,
@@ -826,26 +831,7 @@ local State = {
 	ThumbnailCache = {},
 	ThumbnailPending = {},
 	SessionConfigurations = {},
-	MobileFriendly = {
-		Active = false,
-		Settling = false,
-		PreviousTarget = nil,
-		PreviousPart = nil,
-		PreviousRegion = nil,
-		PreviousLocalOffset = nil,
-		PreviousAimMode = "AUTO",
-		GestureStartedAt = 0,
-		LastMovementAt = 0,
-		LastSwitchAt = 0,
-		LastSourceTarget = nil,
-		LastDestinationTarget = nil,
-		LastDirection = 0,
-		TransitionActive = false,
-		TransitionPlayer = nil,
-		TransitionStartedAt = 0,
-		TransitionDuration = 0,
-		TransitionFromRotation = nil,
-	},
+	Swipe = {Transition = nil, LastResult = "Nenhum gesto"},
 
 	Debug = {
 		LastReason = "Aguardando",
@@ -923,7 +909,7 @@ function Persistence.NormalizeConfig()
 		TapSelectPadding = {0, 32},
 		TapSelectMoveThreshold = {4, 64},
 		TapSelectMaxDuration = {0.1, 1.5},
-		MobileFriendlyMoveThreshold = {36, 180},
+		MobileFriendlyMoveThreshold = {18, 180},
 		MobileFriendlyRadius = {80, 400},
 		MobileFriendlyHorizontalRatio = {0.75, 3},
 		MobileFriendlyStartArea = {0.25, 0.70},
@@ -2825,6 +2811,7 @@ end
 --==============================================================
 
 local Aim = {}
+local TargetSwipe = {}
 
 Aim.RayParams = RaycastParams.new()
 Aim.RayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -3026,28 +3013,7 @@ function Aim.CurrentPointVisible()
 end
 
 function Aim.ClearCurrentTarget(reason)
-	local mobile = State.MobileFriendly
-
-	if mobile then
-		mobile.Active = false
-		mobile.Settling = false
-		mobile.PreviousTarget = nil
-		mobile.PreviousPart = nil
-		mobile.PreviousRegion = nil
-		mobile.PreviousLocalOffset = nil
-		mobile.PreviousAimMode = Config.AimMode
-		mobile.GestureStartedAt = 0
-		mobile.LastMovementAt = 0
-		mobile.TransitionActive = false
-		mobile.TransitionPlayer = nil
-		mobile.TransitionStartedAt = 0
-		mobile.TransitionDuration = 0
-		mobile.TransitionFromRotation = nil
-		mobile.LastSourceTarget = nil
-		mobile.LastDestinationTarget = nil
-		mobile.LastDirection = 0
-		mobile.LastSwitchAt = 0
-	end
+	TargetSwipe.CancelTransition()
 
 	State.CurrentTarget = nil
 	State.CurrentPart = nil
@@ -3723,68 +3689,6 @@ function Aim.PlayerCanBeTarget(record)
 	return true
 end
 
-function Aim.MobileFriendlyRetainsCurrentTarget()
-	return Aim.MobileFriendlyRetainedCandidate
-		and Aim.MobileFriendlyRetainedCandidate() ~= nil
-		or false
-end
-
-function Aim.MobileFriendlyRetainedCandidate()
-	if not Aim.MobileFriendlyEnabled() then
-		return nil
-	end
-	local player = State.CurrentTarget
-	if not player or player.Parent ~= S.Players
-		or not Aim.PlayerAllowed(player)
-		or (Config.AimMode == "SELECTED" and not State.SelectedPlayers[player]) then
-		return nil
-	end
-	local record = Aim.RefreshMobileFriendlyRecord(player)
-	if not record or not PlayerCache.IsAlive(record) then
-		return nil
-	end
-
-	local part = State.CurrentPart
-	local region = State.CurrentRegion
-	local localOffset = State.CurrentLocalOffset
-	local point = nil
-	if part and part.Parent and region and Aim.RegionEnabled(region)
-		and PlayerCache.PartBelongsToRecord(record, part)
-		and (not Config.StrictBodyRegion or Config.BodyFallback
-			or region == Config.PrimaryBodyRegion) then
-		point = localOffset and part.CFrame:PointToWorldSpace(localOffset) or part.Position
-	end
-
-	local visible = point ~= nil and Aim.PointVisible(record, point)
-	local replacement = nil
-	if Config.StrictBodyRegion and region ~= Config.PrimaryBodyRegion then
-		replacement = Aim.ResolveRegionPoint(record, Config.PrimaryBodyRegion, true)
-	end
-	if not replacement and not visible then
-		-- Repair the body point on this player before considering another player.
-		replacement = Aim.ResolveMobileFriendlyBodyPoint(record)
-	end
-	if replacement then
-		part, region, point = replacement.Part, replacement.Region, replacement.Point
-		localOffset = replacement.LocalOffset or part.CFrame:PointToObjectSpace(point)
-		visible = true
-	end
-	if not point then
-		return nil
-	end
-	if visible then
-		State.LastTargetVisible = os.clock()
-	elseif Config.StrictWallCheck or os.clock() - State.LastTargetVisible > Config.WallGrace then
-		return nil
-	end
-
-	return {
-		Player = player, Record = record, Part = part, Region = region,
-		Point = point, LocalOffset = localOffset, Score = -math.huge,
-		IsCenter = localOffset == nil or localOffset.Magnitude < 0.0001,
-		Visible = visible,
-	}
-end
 
 function Aim.AcquireTarget()
 	State.Debug.Candidates = 0
@@ -3792,8 +3696,8 @@ function Aim.AcquireTarget()
 	-- Keep a manually controlled target only while it can actually receive the
 	-- aim. An invalid part, hidden player or incomplete character must never
 	-- block the normal scanner just because gesture switching is enabled.
-	if Aim.MobileFriendlyEnabled() then
-		local retainedCandidate = Aim.MobileFriendlyRetainedCandidate()
+	if TargetSwipe.IsEnabled() then
+		local retainedCandidate = TargetSwipe.RetainedCandidate()
 
 		if retainedCandidate then
 			State.Debug.LastReason =
@@ -3959,225 +3863,52 @@ function Aim.AcquireTarget()
 	return best
 end
 
-function Aim.MobileFriendlyEnabled()
-	return Config.MobileFriendlySwitch == true
-		and S.UIS.TouchEnabled == true
+-- A swipe changes the selected player synchronously. It never suspends the
+-- scanner or the regular aim loop, and there is no active/settling lock.
+function TargetSwipe.IsEnabled()
+	return Config.MobileFriendlySwitch == true and S.UIS.TouchEnabled == true
 end
 
-function Aim.MobileFriendlyInProgress()
-	local mobile = State.MobileFriendly
-	return mobile
-		and (mobile.Active == true or mobile.Settling == true)
-		or false
+function TargetSwipe.CanReceiveInput()
+	return TargetSwipe.IsEnabled() and Config.AimEnabled == true
+		and S.Workspace.CurrentCamera ~= nil and Util.LocalCharacterAlive()
 end
 
-function Aim.MobileFriendlyTransitionActive()
-	local mobile = State.MobileFriendly
-
-	return mobile
-		and mobile.TransitionActive == true
-		and mobile.TransitionPlayer ~= nil
-		and mobile.TransitionFromRotation ~= nil
-		or false
+function TargetSwipe.CancelTransition()
+	State.Swipe.Transition = nil
 end
 
-function Aim.ResetMobileFriendlyTransition()
-	local mobile = State.MobileFriendly
-
-	if not mobile then
-		return
+function TargetSwipe.Cancel(reason)
+	TargetSwipe.CancelTransition()
+	if State.UI.ResetWorldGestureInput then
+		State.UI.ResetWorldGestureInput()
 	end
-
-	mobile.TransitionActive = false
-	mobile.TransitionPlayer = nil
-	mobile.TransitionStartedAt = 0
-	mobile.TransitionDuration = 0
-	mobile.TransitionFromRotation = nil
+	if reason then State.Swipe.LastResult = reason end
 end
 
-function Aim.MobileFriendlyCanBegin()
-	S.Camera = S.Workspace.CurrentCamera
-
-	local player = State.CurrentTarget
-	local record = player and State.Records[player]
-
-	return Aim.MobileFriendlyEnabled()
-		and not Aim.MobileFriendlyInProgress()
-		and not Aim.MobileFriendlyTransitionActive()
-		and Config.AimEnabled == true
-		and S.Camera ~= nil
-		and Util.LocalCharacterAlive()
-		and player ~= nil
-		and player.Parent == S.Players
-		and Aim.PlayerAllowed(player)
-		and PlayerCache.IsAlive(record)
-		and State.CurrentPart ~= nil
-		and State.CurrentPart.Parent ~= nil
-		and PlayerCache.PartBelongsToRecord(
-			record,
-			State.CurrentPart
-		)
-end
-
-function Aim.ResetMobileFriendlyState()
-	local mobile = State.MobileFriendly
-
-	if not mobile then
-		return
-	end
-
-	mobile.Active = false
-	mobile.Settling = false
-	mobile.PreviousTarget = nil
-	mobile.PreviousPart = nil
-	mobile.PreviousRegion = nil
-	mobile.PreviousLocalOffset = nil
-	mobile.PreviousAimMode = Config.AimMode
-	mobile.GestureStartedAt = 0
-	mobile.LastMovementAt = 0
-end
-
-function Aim.StartMobileFriendlyTransition(candidate)
-	local mobile = State.MobileFriendly
-
-	if not mobile
-		or not S.Camera
-		or not candidate
-		or not candidate.Player
-		or not candidate.Point then
-
-		Aim.ResetMobileFriendlyTransition()
-		return false
-	end
-
-	local cameraCFrame = S.Camera.CFrame
-	local cameraPosition = cameraCFrame.Position
-	local targetVector = candidate.Point - cameraPosition
-
-	if targetVector.Magnitude <= 0.001 then
-		Aim.ResetMobileFriendlyTransition()
-		return false
-	end
-
-	local targetDirection = targetVector.Unit
-	local angle = math.acos(math.clamp(
-		cameraCFrame.LookVector:Dot(targetDirection),
-		-1,
-		1
-	))
-	local minimumDuration = math.max(
-		Config.MobileFriendlyTransitionMin or 0.12,
-		0.05
-	)
-	local maximumDuration = math.max(
-		Config.MobileFriendlyTransitionMax or 0.30,
-		minimumDuration
-	)
-	local distanceFactor = math.clamp(
-		(candidate.WorldDistance or targetVector.Magnitude) / 3000,
-		0,
-		1
-	)
-	local transitionFactor = math.max(
-		math.clamp(angle / math.pi, 0, 1),
-		distanceFactor * 0.35
-	)
-
-	mobile.TransitionActive = true
-	mobile.TransitionPlayer = candidate.Player
-	mobile.TransitionStartedAt = os.clock()
-	mobile.TransitionDuration = minimumDuration
-		+ (maximumDuration - minimumDuration) * transitionFactor
-	mobile.TransitionFromRotation =
-		cameraCFrame - cameraPosition
-
-	-- Ask Roblox to finish streaming the region while the camera is already
-	-- moving toward a distant target. This runs asynchronously and never delays
-	-- the swipe or the current render frame.
-	if S.Workspace.StreamingEnabled
-		and targetVector.Magnitude
-			>= (Config.MobileFriendlyStreamDistance or 650) then
-
-		local streamPosition = candidate.Point
-		task.spawn(function()
-			pcall(function()
-				S.LocalPlayer:RequestStreamAroundAsync(
-					streamPosition,
-					0.35
-				)
-			end)
-		end)
-	end
-
-	return true
-end
-
-function Aim.BeginMobileFriendlySwitch(expectedTarget)
-	local mobile = State.MobileFriendly
-
-	if not mobile
-		or not Aim.MobileFriendlyCanBegin()
-		or (
-			expectedTarget ~= nil
-			and State.CurrentTarget ~= expectedTarget
-		) then
-
-		return false
-	end
-
-	mobile.Active = true
-	mobile.Settling = false
-	mobile.PreviousTarget = State.CurrentTarget
-	mobile.PreviousPart = State.CurrentPart
-	mobile.PreviousRegion = State.CurrentRegion
-	mobile.PreviousLocalOffset = State.CurrentLocalOffset
-	mobile.PreviousAimMode = Config.AimMode
-	mobile.GestureStartedAt = os.clock()
-	mobile.LastMovementAt = mobile.GestureStartedAt
-
-	-- Snapshot the old target only for this atomic switch. Input handling commits
-	-- in the same event, so normal aiming never waits for the finger to be lifted.
-	State.Debug.LastReason = "Troca por gesto: puxada lateral confirmada"
-	return true
-end
-
-function Aim.RefreshMobileFriendlyRecord(player)
-	local record = State.Records[player]
-		or PlayerCache.Get(player)
-	local character = player and player.Character
-
-	if not character
-		or not character.Parent
+function TargetSwipe.Record(player)
+	if not player or player.Parent ~= S.Players then return nil end
+	local record = State.Records[player] or PlayerCache.Get(player)
+	local character = player.Character
+	if not character or not character.Parent
 		or not character:IsDescendantOf(S.Workspace) then
-
-		return record
+		return nil
 	end
-
 	if record.Character ~= character then
 		record = PlayerCache.BindCharacter(player, character)
 		if BindImmediateESPCharacterEvents then
 			BindImmediateESPCharacterEvents(player, record)
 		end
-	else
-		local primaryParts = record.BodyParts
-			and record.BodyParts[Config.PrimaryBodyRegion]
-
-		if not PlayerCache.IsAlive(record)
-			or not record.Root
-			or not primaryParts
-			or #primaryParts == 0 then
-
-			PlayerCache.RefreshBodyParts(record)
-		end
+	elseif not record.Root or not record.Root.Parent then
+		PlayerCache.RefreshBodyParts(record)
 	end
-
 	return record
 end
 
-function Aim.ResolveMobileFriendlyBodyPoint(record)
-	if not S.Camera or not record then
-		return nil
-	end
+function TargetSwipe.BodyPoint(record)
+	if not record or not S.Camera then return nil end
+	-- The manual choice may leave the normal FOV. All body, life, protection
+	-- and visibility rules still apply through the shared body resolver.
 	local result = Aim.ResolveBestBodyPoint(record, true)
 	if result then
 		result.LocalOffset = result.Part.CFrame:PointToObjectSpace(result.Point)
@@ -4185,288 +3916,266 @@ function Aim.ResolveMobileFriendlyBodyPoint(record)
 	return result
 end
 
-function Aim.ResolveMobileFriendlyTarget(previousTarget, horizontalDelta)
-	if not S.Camera then
-		return nil
-	end
-	State.Debug.Candidates = 0
-	local movementX = Persistence.FiniteNumber(horizontalDelta, 0)
-	if movementX == 0 then
-		return nil
-	end
-	-- Roblox turns the camera in the opposite direction to the finger.
-	local desiredSide = movementX < 0 and 1 or -1
-	local cameraCFrame = S.Camera.CFrame
-	local cameraPosition = cameraCFrame.Position
-	local mobile = State.MobileFriendly
-	local previousPart = mobile and mobile.PreviousPart
-	if not previousTarget or not previousPart or not previousPart.Parent then
-		return nil
-	end
-	local previousPoint = mobile.PreviousLocalOffset
-		and previousPart.CFrame:PointToWorldSpace(mobile.PreviousLocalOffset)
-		or previousPart.Position
-	local previousVector = previousPoint - cameraPosition
-	if previousVector.Magnitude <= 0.001 then
-		return nil
-	end
-	local previousDirection = cameraCFrame:VectorToObjectSpace(previousVector.Unit)
-	local previousYaw = math.atan2(previousDirection.X, -previousDirection.Z)
-	local previousPitch = math.asin(math.clamp(previousDirection.Y, -1, 1))
-	local epsilon = 1e-7
-	local maximumAdvance = math.pi
-	local continuingDirection = mobile.LastDestinationTarget == previousTarget
-		and mobile.LastDirection == desiredSide
-		and os.clock() - (mobile.LastSwitchAt or 0) <= (Config.MobileFriendlyGestureTimeout or 3)
-	local best = nil
-
-	local function isBetter(candidate)
-		if not best then return true end
-		if math.abs(candidate.AngularAdvance - best.AngularAdvance) > epsilon then
-			return candidate.AngularAdvance < best.AngularAdvance
+function TargetSwipe.Anchor(record, cameraPosition)
+	-- Use the same anatomical reference for every player. Head offsets and
+	-- fallback body points must not reorder neighbours during the gesture.
+	for _, key in ipairs({"Root", "Torso", "Head"}) do
+		local part = record[key]
+		if PlayerCache.PartBelongsToRecord(record, part)
+			and (part.Position - cameraPosition).Magnitude > 0.001 then
+			return part.Position
 		end
-		if math.abs(candidate.VerticalDifference - best.VerticalDifference) > epsilon then
-			return candidate.VerticalDifference < best.VerticalDifference
-		end
-		if candidate.AngularAdvance <= epsilon and best.AngularAdvance <= epsilon then
-			-- Truly overlapping avatars need a stable order too. Continue through
-			-- the whole group instead of cycling forever between the first three.
-			local candidateOrder = (candidate.Player.UserId - previousTarget.UserId) * desiredSide
-			local bestOrder = (best.Player.UserId - previousTarget.UserId) * desiredSide
-			if (candidateOrder > 0) ~= (bestOrder > 0) then
-				return candidateOrder > 0
+	end
+	for _, region in ipairs(BodyRegionOrder) do
+		for _, part in ipairs((record.BodyParts and record.BodyParts[region]) or {}) do
+			if PlayerCache.PartBelongsToRecord(record, part)
+				and (part.Position - cameraPosition).Magnitude > 0.001 then
+				return part.Position
 			end
-			return candidateOrder < bestOrder
 		end
-		return candidate.Player.UserId < best.Player.UserId
 	end
+	return nil
+end
 
+function TargetSwipe.MakeSnapshot(referenceFrame)
+	local snapshot = {
+		Camera = referenceFrame,
+		Source = State.CurrentTarget,
+		SourceYaw = 0,
+		SourcePitch = 0,
+		Players = {},
+	}
 	for _, player in ipairs(S.Players:GetPlayers()) do
-		if player ~= S.LocalPlayer and player ~= previousTarget and Aim.PlayerAllowed(player)
-			and not (continuingDirection and player == mobile.LastSourceTarget) then
-			local record = Aim.RefreshMobileFriendlyRecord(player)
-			local bodyResult = record and PlayerCache.IsAlive(record)
-				and Aim.ResolveMobileFriendlyBodyPoint(record)
-			if bodyResult then
-				local worldVector = bodyResult.Point - cameraPosition
-				if worldVector.Magnitude > 0.001 then
-					local direction = cameraCFrame:VectorToObjectSpace(worldVector.Unit)
-					local yaw = math.atan2(direction.X, -direction.Z)
-					local pitch = math.asin(math.clamp(direction.Y, -1, 1))
-					local advance = math.atan2(math.sin(yaw - previousYaw), math.cos(yaw - previousYaw)) * desiredSide
-					if math.abs(math.abs(advance) - math.pi) <= epsilon then advance = math.pi end
-					if advance >= -epsilon and advance <= maximumAdvance then
-						State.Debug.Candidates += 1
-						-- All neighbours compete in one ordered list, including tiny
-						-- angles at long range. No distance or precision cutoff applies.
-						local candidate = {
-							Player = player, Record = record, Part = bodyResult.Part,
-							Region = bodyResult.Region, Point = bodyResult.Point,
-							LocalOffset = bodyResult.LocalOffset,
-							WorldDistance = bodyResult.WorldDistance,
-							Direction = desiredSide, AngularAdvance = math.max(advance, 0),
-							VerticalDifference = math.abs(pitch - previousPitch),
-							Score = math.max(advance, 0), Visible = true,
-						}
-						if isBetter(candidate) then best = candidate end
-					end
+		if player ~= S.LocalPlayer and player.Parent == S.Players
+			and Aim.PlayerAllowed(player) then
+			-- A partially streamed or malformed character cannot abort the
+			-- entire choice. Only that player's entry is skipped.
+			local ok, entry = pcall(function()
+				local record = TargetSwipe.Record(player)
+				if not record or not PlayerCache.IsAlive(record) then return nil end
+				local point = TargetSwipe.Anchor(record, referenceFrame.Position)
+				if not point then return nil end
+				local localPoint = referenceFrame:PointToObjectSpace(point)
+				local direction = localPoint.Unit
+				return {
+					Player = player, Record = record,
+					Yaw = math.atan2(direction.X, -direction.Z),
+					Pitch = math.asin(math.clamp(direction.Y, -1, 1)),
+				}
+			end)
+			if ok and entry then
+				snapshot.Players[#snapshot.Players + 1] = entry
+				if player == snapshot.Source then
+					snapshot.SourceYaw = entry.Yaw
+					snapshot.SourcePitch = entry.Pitch
 				end
 			end
 		end
 	end
-	return best
+	return snapshot
 end
 
-function Aim.RestorePreviousMobileFriendlyTarget(reason)
-	local mobile = State.MobileFriendly
-	local player = mobile and mobile.PreviousTarget
-	local part = mobile and mobile.PreviousPart
-	local region = mobile and mobile.PreviousRegion
-	local record = player and State.Records[player]
-
-	if not player
-		or player.Parent ~= S.Players
-		or not record
-		or not PlayerCache.IsAlive(record)
-		or not Aim.PlayerAllowed(player)
-		or not part
-		or not part.Parent
-		or not PlayerCache.PartBelongsToRecord(record, part)
-		or not region
-		or not Aim.RegionEnabled(region) then
-
-		Aim.ClearCurrentTarget(
-			reason or "Troca por gesto: alvo anterior indisponível"
-		)
-		return nil
+function TargetSwipe.Pick(snapshot, direction)
+	local candidates = {}
+	local epsilon = 1e-7
+	local sourceId = snapshot.Source and snapshot.Source.UserId or 0
+	for _, entry in ipairs(snapshot.Players) do
+		if entry.Player ~= snapshot.Source then
+			local difference = entry.Yaw - snapshot.SourceYaw
+			local advance = math.atan2(math.sin(difference), math.cos(difference)) * direction
+			if math.abs(math.abs(advance) - math.pi) <= epsilon then advance = math.pi end
+			if advance >= -epsilon then
+				entry.Advance = math.max(advance, 0)
+				entry.Vertical = math.abs(entry.Pitch - snapshot.SourcePitch)
+				entry.OverlapOrder = (entry.Player.UserId - sourceId) * direction
+				candidates[#candidates + 1] = entry
+			end
+		end
 	end
 
-	Config.AimMode = mobile.PreviousAimMode == "SELECTED"
-		and "SELECTED"
-		or "AUTO"
-	State.CurrentTarget = player
-	State.CurrentPart = part
-	State.CurrentRegion = region
-	State.CurrentLocalOffset = mobile.PreviousLocalOffset
+	-- Quantized keys form a strict total order; epsilon comparisons directly
+	-- inside table.sort can violate transitivity when several players overlap.
+	for _, entry in ipairs(candidates) do
+		entry.AngleKey = math.floor(entry.Advance / epsilon + 0.5)
+		entry.HeightKey = math.floor(entry.Vertical / epsilon + 0.5)
+	end
+	table.sort(candidates, function(a, b)
+		if a.AngleKey ~= b.AngleKey then return a.AngleKey < b.AngleKey end
+		if a.AngleKey == 0 then
+			local aForward, bForward = a.OverlapOrder > 0, b.OverlapOrder > 0
+			if aForward ~= bForward then return aForward end
+			if a.OverlapOrder ~= b.OverlapOrder then return a.OverlapOrder < b.OverlapOrder end
+		end
+		if a.HeightKey ~= b.HeightKey then return a.HeightKey < b.HeightKey end
+		return a.Player.UserId < b.Player.UserId
+	end)
+
+	State.Debug.Candidates = #candidates
+	-- Check expensive body points in the already determined order. Distance,
+	-- precision and FOV never push a farther neighbour ahead of a nearer one.
+	for _, entry in ipairs(candidates) do
+		local ok, result = pcall(function()
+			local player = entry.Player
+			if player.Parent ~= S.Players or not Aim.PlayerAllowed(player) then return nil end
+			local record = TargetSwipe.Record(player)
+			if not record or not PlayerCache.IsAlive(record) then return nil end
+			local body = TargetSwipe.BodyPoint(record)
+			if not body then return nil end
+			body.Player, body.Record = player, record
+			body.Direction = direction
+			body.Visible = true
+			return body
+		end)
+		if ok and result then return result end
+	end
+	return nil
+end
+
+function TargetSwipe.Assign(candidate)
+	State.CurrentTarget = candidate.Player
+	State.CurrentPart = candidate.Part
+	State.CurrentRegion = candidate.Region
+	State.CurrentLocalOffset = candidate.LocalOffset
 	State.LastTargetSeen = os.clock()
-	if Aim.PointVisible(record, Aim.CurrentAimPoint() or part.Position) then
-		State.LastTargetVisible = os.clock()
-	end
-	State.Debug.LastScore = nil
-	State.Debug.LastRegion = region
-	State.Debug.LastDistance = S.Camera
-		and (part.Position - S.Camera.CFrame.Position).Magnitude
-		or nil
-	State.Debug.LastReason =
-		reason or "Troca por gesto: alvo anterior restaurado"
-
-	return player
+	if candidate.Visible == true then State.LastTargetVisible = os.clock() end
+	State.Debug.LastScore = Persistence.FiniteNumber(candidate.Score, nil)
+	State.Debug.LastRegion = candidate.Region
+	State.Debug.LastDistance = candidate.WorldDistance
+		or (candidate.Point and S.Camera and (candidate.Point - S.Camera.CFrame.Position).Magnitude)
 end
 
-function Aim.CommitMobileFriendlySwitch(horizontalDelta)
-	local mobile = State.MobileFriendly
+function TargetSwipe.StartTransition(candidate)
+	TargetSwipe.CancelTransition()
+	-- Other response settings already have their own axis-aware smoothing.
+	if not Aim.IsMaximumResponse() or not S.Camera then return end
+	local frame = S.Camera.CFrame
+	local offset = candidate.Point - frame.Position
+	if offset.Magnitude <= 0.001 then return end
+	local angle = math.acos(math.clamp(frame.LookVector:Dot(offset.Unit), -1, 1))
+	local minimum = math.clamp(Config.MobileFriendlyTransitionMin, 0.05, 0.6)
+	local maximum = math.clamp(Config.MobileFriendlyTransitionMax, minimum, 0.8)
+	State.Swipe.Transition = {
+		Player = candidate.Player,
+		Camera = S.Camera,
+		From = frame - frame.Position,
+		Elapsed = 0,
+		Duration = minimum + (maximum - minimum) * math.clamp(angle / math.pi, 0, 1),
+	}
+end
 
-	if not mobile
-		or (not mobile.Active and not mobile.Settling) then
-
-		return false, nil
+function TargetSwipe.ApplyTransition(targetPoint, deltaTime)
+	local transition = State.Swipe.Transition
+	if not transition then return false end
+	if not TargetSwipe.IsEnabled() or not Aim.IsMaximumResponse()
+		or transition.Player ~= State.CurrentTarget or transition.Camera ~= S.Camera then
+		TargetSwipe.CancelTransition()
+		return false
 	end
+	local cameraPosition = S.Camera.CFrame.Position
+	local offset = targetPoint - cameraPosition
+	if offset.Magnitude <= 0.001 then
+		TargetSwipe.CancelTransition()
+		return false
+	end
+	transition.Elapsed = math.min(transition.Elapsed + math.max(deltaTime or 1 / 60, 0), transition.Duration)
+	local progress = transition.Elapsed / transition.Duration
+	local eased = 1 - (1 - progress) ^ 3
+	local targetRotation = CFrame.lookAt(Vector3.zero, offset.Unit)
+	S.Camera.CFrame = CFrame.new(cameraPosition) * transition.From:Lerp(targetRotation, eased)
+	if progress >= 1 then TargetSwipe.CancelTransition() end
+	return true
+end
 
-	mobile.Active = false
-	mobile.Settling = true
+function TargetSwipe.Request(horizontalDelta, referenceFrame)
+	if not TargetSwipe.CanReceiveInput() then return false end
+	local movement = Persistence.FiniteNumber(horizontalDelta, 0)
+	if movement == 0 then return false end
 	S.Camera = S.Workspace.CurrentCamera
+	local direction = movement > 0 and 1 or -1
+	if Config.MobileFriendlyInvertGesture then direction = -direction end
 
-	local previousTarget = mobile.PreviousTarget
-	local previousAimMode = mobile.PreviousAimMode
-	local ok, changed, finalPlayer = pcall(function()
-		local candidate = Aim.ResolveMobileFriendlyTarget(
-			previousTarget,
-			horizontalDelta
-		)
-		local changed = candidate ~= nil
-		local finalPlayer = nil
-
-		if candidate then
-			if previousAimMode == "SELECTED" then
-				for selectedPlayer in pairs(State.SelectedPlayers) do
-					State.SelectedPlayers[selectedPlayer] = nil
-				end
-
-				State.SelectedPlayers[candidate.Player] = true
-			end
-
-			Config.AimMode = previousAimMode == "SELECTED"
-				and "SELECTED"
-				or "AUTO"
-			State.CurrentTarget = candidate.Player
-			State.CurrentPart = candidate.Part
-			State.CurrentRegion = candidate.Region
-			State.CurrentLocalOffset = candidate.LocalOffset
-			State.LastTargetSeen = os.clock()
-			State.LastTargetVisible = os.clock()
-			State.Debug.LastScore = candidate.Score
-			State.Debug.LastRegion = candidate.Region
-			State.Debug.LastDistance =
-				(candidate.Part.Position - S.Camera.CFrame.Position).Magnitude
-			mobile.LastSourceTarget = previousTarget
-			mobile.LastDestinationTarget = candidate.Player
-			mobile.LastDirection = candidate.Direction
-			State.Debug.LastReason = candidate.Direction == 1
-				and "Troca por gesto: próximo alvo à direita"
-				or "Troca por gesto: próximo alvo à esquerda"
-			finalPlayer = candidate.Player
-		else
-			finalPlayer = Aim.RestorePreviousMobileFriendlyTarget(
-				"Troca por gesto: nenhum alvo novo; anterior mantido"
-			)
-		end
-
-		mobile.LastSwitchAt = os.clock()
-		Aim.ResetMobileFriendlyState()
-
-		if changed then
-			Aim.StartMobileFriendlyTransition(candidate)
-		else
-			Aim.ResetMobileFriendlyTransition()
-		end
-
-		return changed, finalPlayer
+	local ok, candidate = pcall(function()
+		local snapshot = TargetSwipe.MakeSnapshot(referenceFrame or S.Camera.CFrame)
+		return TargetSwipe.Pick(snapshot, direction)
 	end)
 	if not ok then
-		State.LastRuntimeError = tostring(changed)
-		Aim.ClearCurrentTarget("Troca interrompida; procurando um alvo")
+		State.LastRuntimeError = string.sub(tostring(candidate), 1, 240)
+		State.Swipe.LastResult = "Gesto não aplicado; alvo mantido"
+		return false
 	end
-	Aim.ResetMobileFriendlyState()
-	if not ok then
-		Aim.ResetMobileFriendlyTransition()
-		return false, nil
+	if not candidate then
+		State.Swipe.LastResult = "Nenhum outro alvo nessa direção"
+		return false
 	end
-	return changed, finalPlayer
+
+	-- Nothing was cleared while searching. A valid destination is committed
+	-- in this event, even if the previous camera transition is still running.
+	local selectionChanged = Config.AimMode == "SELECTED"
+	if selectionChanged then
+		table.clear(State.SelectedPlayers)
+		State.SelectedPlayers[candidate.Player] = true
+	end
+	TargetSwipe.Assign(candidate)
+	State.Swipe.LastResult = direction > 0 and "Alvo à direita" or "Alvo à esquerda"
+	State.Debug.LastReason = State.Swipe.LastResult
+	local transitionOk, transitionError = pcall(TargetSwipe.StartTransition, candidate)
+	if not transitionOk then
+		TargetSwipe.CancelTransition()
+		State.LastRuntimeError = string.sub(tostring(transitionError), 1, 240)
+	end
+	if State.UI.OnSwipeTargetChanged then
+		-- UI failures must not undo a successful target change.
+		pcall(State.UI.OnSwipeTargetChanged, candidate.Player, selectionChanged)
+	end
+	return true
 end
 
-function Aim.CancelMobileFriendlySwitch(reason, restorePrevious)
-	local mobile = State.MobileFriendly
-
-	if not mobile then
-		return false, nil
+function TargetSwipe.RetainedCandidate()
+	if not TargetSwipe.IsEnabled() then return nil end
+	local player = State.CurrentTarget
+	if not player or player.Parent ~= S.Players or not Aim.PlayerAllowed(player)
+		or (Config.AimMode == "SELECTED" and not State.SelectedPlayers[player]) then
+		return nil
 	end
-
-	local gestureInProgress = mobile.Active or mobile.Settling
-	local transitionInProgress =
-		Aim.MobileFriendlyTransitionActive()
-	local wasInProgress = gestureInProgress or transitionInProgress
-	local restoredPlayer = nil
-
-	if gestureInProgress and restorePrevious == true then
-		local ok, result = pcall(Aim.RestorePreviousMobileFriendlyTarget, reason)
-		if ok then
-			restoredPlayer = result
-		else
-			State.LastRuntimeError = tostring(result)
-			Aim.ClearCurrentTarget("Troca cancelada; procurando um alvo")
-		end
+	local record = TargetSwipe.Record(player)
+	if not record or not PlayerCache.IsAlive(record) then return nil end
+	local part, region = State.CurrentPart, State.CurrentRegion
+	local offset = State.CurrentLocalOffset
+	local point = nil
+	if region and Aim.RegionEnabled(region) and PlayerCache.PartBelongsToRecord(record, part)
+		and (not Config.StrictBodyRegion or Config.BodyFallback or region == Config.PrimaryBodyRegion) then
+		point = offset and part.CFrame:PointToWorldSpace(offset) or part.Position
 	end
-
-	if wasInProgress and reason and not restoredPlayer then
-		State.Debug.LastReason = reason
+	local visible = point ~= nil and Aim.PointVisible(record, point)
+	local replacement = nil
+	if Config.StrictBodyRegion and region ~= Config.PrimaryBodyRegion then
+		replacement = Aim.ResolveRegionPoint(record, Config.PrimaryBodyRegion, true)
 	end
-
-	Aim.ResetMobileFriendlyState()
-	Aim.ResetMobileFriendlyTransition()
-
-	if wasInProgress
-		and State.UI.ResetWorldGestureInput then
-
-		State.UI.ResetWorldGestureInput()
+	if not replacement and not visible then replacement = TargetSwipe.BodyPoint(record) end
+	if replacement then
+		part, region, point = replacement.Part, replacement.Region, replacement.Point
+		offset = replacement.LocalOffset or part.CFrame:PointToObjectSpace(point)
+		visible = true
 	end
-
-	return wasInProgress, restoredPlayer
+	if not point then return nil end
+	if not visible and (Config.StrictWallCheck or os.clock() - State.LastTargetVisible > Config.WallGrace) then
+		return nil
+	end
+	return {
+		Player = player, Record = record, Part = part, Region = region,
+		Point = point, LocalOffset = offset, Score = -math.huge, Visible = visible,
+		WorldDistance = (point - S.Camera.CFrame.Position).Magnitude,
+	}
 end
 
-function Aim.MobileFriendlyTimedOut()
-	local mobile = State.MobileFriendly
-	local now = os.clock()
-	local hardTimeout = math.max(
-		Persistence.FiniteNumber(
-			Config.MobileFriendlyGestureTimeout,
-			3
-		),
-		0.75
-	)
-	local idleTimeout = 0.55
-
-	return mobile
-		and (mobile.Active == true or mobile.Settling == true)
-		and mobile.GestureStartedAt > 0
-		and (
-			now - mobile.GestureStartedAt >= hardTimeout
-			or (
-				mobile.LastMovementAt > 0
-				and now - mobile.LastMovementAt >= idleTimeout
-			)
-		)
-		or false
+function TargetSwipe.RefreshCurrent()
+	if not TargetSwipe.IsEnabled() then return false, nil end
+	local candidate = TargetSwipe.RetainedCandidate()
+	if not candidate then return false, false end
+	TargetSwipe.Assign(candidate)
+	return true, candidate.Visible
 end
+
 
 function Aim.GetPredictionTime(part)
 	if not Config.Prediction then
@@ -4796,11 +4505,11 @@ end
 
 function Aim.Apply(part, deltaTime)
 	if Config.Accuracy <= 0 or Aim.EffectiveStrength() <= 0 then
-		Aim.ResetMobileFriendlyTransition()
+		TargetSwipe.CancelTransition()
 		return
 	end
 	if Config.HorizontalStrength < 100 or Config.VerticalStrength < 100 then
-		Aim.ResetMobileFriendlyTransition()
+		TargetSwipe.CancelTransition()
 	end
 	if Config.HorizontalStrength <= 0 and Config.VerticalStrength <= 0 then
 		return
@@ -4831,46 +4540,8 @@ function Aim.Apply(part, deltaTime)
 	local desiredDirection =
 		desiredVector.Unit
 
-	if Aim.MobileFriendlyTransitionActive() then
-		local mobile = State.MobileFriendly
-
-		if mobile.TransitionPlayer ~= State.CurrentTarget
-			or not mobile.TransitionFromRotation then
-
-			Aim.ResetMobileFriendlyTransition()
-		else
-			local duration = math.max(
-				mobile.TransitionDuration or 0,
-				1 / 240
-			)
-			local progress = math.clamp(
-				(os.clock() - mobile.TransitionStartedAt) / duration,
-				0,
-				1
-			)
-			-- Cubic ease-out reacts immediately to the swipe and decelerates near
-			-- the new player, avoiding both a hard snap and a sluggish start.
-			local eased = 1 - (1 - progress) ^ 3
-			local targetRotation = CFrame.lookAt(
-				Vector3.zero,
-				desiredDirection,
-				Vector3.new(0, 1, 0)
-			)
-			local blendedRotation =
-				mobile.TransitionFromRotation:Lerp(
-					targetRotation,
-					eased
-				)
-
-			S.Camera.CFrame =
-				CFrame.new(cameraPosition) * blendedRotation
-
-			if progress >= 1 then
-				Aim.ResetMobileFriendlyTransition()
-			end
-
-			return
-		end
+	if TargetSwipe.ApplyTransition(targetPoint, deltaTime) then
+		return
 	end
 
 	local baseAlpha =
@@ -5352,156 +5023,139 @@ end
 function UI.CloseHelpDialog()
 	local active = State.UI.ActiveHelpDialog
 	State.UI.ActiveHelpDialog = nil
-
-	if not active then
-		return
-	end
-
-	if active.Overlay and active.Overlay.Parent then
-		active.Overlay:Destroy()
-	end
-	if active.Panel and active.Panel.Parent then
-		active.Panel:Destroy()
-	end
+	if not active then return end
+	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
+	if active.Overlay and active.Overlay.Parent then active.Overlay:Destroy() end
+	if active.Panel and active.Panel.Parent then active.Panel:Destroy() end
 end
 
 function UI.OpenHelpDialog(title, message)
-	if not State.UI.Root or not State.UI.Root.Parent then
-		return false
-	end
-
+	local root = State.UI.Root
+	if not root or not root.Parent then return false end
+	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(true) end
 	UI.CloseChoiceMenu()
 	UI.CloseHelpDialog()
 
-	local viewport = S.Camera and S.Camera.ViewportSize
-		or Vector2.new(800, 450)
-	local width = math.min(420, math.max(viewport.X - 28, 280))
-	local height = 202
-
 	local overlay = Util.New("TextButton", {
-		Name = "AAP_HelpOverlay",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-		BackgroundTransparency = 0.48,
-		BorderSizePixel = 0,
-		Text = "",
-		AutoButtonColor = false,
-		Active = true,
-		ZIndex = 210,
-	}, State.UI.Root)
-
-	local panel = Util.New("Frame", {
-		Name = "AAP_HelpPanel",
-		AnchorPoint = Vector2.new(0.5, 0.5),
+		Name = "AAP_HelpOverlay", Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.42,
+		BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+		Active = true, Modal = true, ZIndex = 210,
+	}, root)
+	local panel = Util.New("TextButton", {
+		Name = "AAP_HelpPanel", AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(width, height),
-		BackgroundColor3 = Theme.Surface2,
-		BackgroundTransparency = 0.01,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		ZIndex = 211,
-	}, State.UI.Root)
-	Util.Corner(panel, 18)
-	Util.GlassGradient(
-		panel,
-		Theme.GlassRaised,
-		Theme.Glass,
-		0.01,
-		0.03,
-		90
-	)
-	Util.Stroke(panel, Theme.Accent, 0.18, 1)
-	Util.InnerHighlight(panel, 14, 0.84, 212)
-
-	local marker = Util.New("Frame", {
-		Position = UDim2.fromOffset(16, 17),
-		Size = UDim2.fromOffset(5, 28),
-		BackgroundColor3 = Theme.Accent,
-		BorderSizePixel = 0,
-		ZIndex = 213,
-	}, panel)
-	Util.Corner(marker, 999)
-
-	Util.FitText(Util.New("TextLabel", {
-		Position = UDim2.fromOffset(32, 14),
-		Size = UDim2.new(1, -48, 0, 34),
-		BackgroundTransparency = 1,
-		Text = tostring(title or "COMO FUNCIONA"),
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 11,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 213,
-	}, panel), 8, 12)
+		BackgroundColor3 = Theme.Surface2, BackgroundTransparency = 0.01,
+		BorderSizePixel = 0, ClipsDescendants = true,
+		Text = "", AutoButtonColor = false, Active = true, ZIndex = 211,
+	}, root)
+	Util.Corner(panel, 16)
+	Util.Stroke(panel, Theme.BorderSoft, 0.32, 1)
 
 	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(18, 58),
-		Size = UDim2.new(1, -36, 0, 86),
-		BackgroundTransparency = 1,
-		Text = tostring(message or ""),
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham,
-		TextSize = 10,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		ZIndex = 213,
+		Position = UDim2.fromOffset(20, 17), Size = UDim2.new(1, -70, 0, 12),
+		BackgroundTransparency = 1, Text = "AJUDA",
+		TextColor3 = Theme.Accent2, Font = Enum.Font.GothamMedium, TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 213,
+	}, panel)
+	Util.FitText(Util.New("TextLabel", {
+		Position = UDim2.fromOffset(20, 36), Size = UDim2.new(1, -40, 0, 26),
+		BackgroundTransparency = 1, Text = tostring(title or "Como funciona"),
+		TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 213,
+	}, panel), 10, 14)
+	Util.New("Frame", {
+		Position = UDim2.fromOffset(20, 72), Size = UDim2.new(1, -40, 0, 1),
+		BackgroundColor3 = Theme.BorderSoft, BackgroundTransparency = 0.60,
+		BorderSizePixel = 0, ZIndex = 213,
 	}, panel)
 
-	local confirm = Util.New("TextButton", {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -14),
-		Size = UDim2.new(1, -36, 0, 36),
-		BackgroundColor3 = Theme.AccentSoft,
-		BackgroundTransparency = 0.04,
-		BorderSizePixel = 0,
-		Text = "ENTENDI",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 9,
-		AutoButtonColor = false,
-		ZIndex = 213,
+	local body = Util.New("ScrollingFrame", {
+		Position = UDim2.fromOffset(20, 86), Size = UDim2.new(1, -40, 1, -144),
+		BackgroundTransparency = 1, BorderSizePixel = 0,
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y, ScrollBarThickness = 2,
+		ScrollBarImageColor3 = Theme.Sub, ScrollBarImageTransparency = 0.45,
+		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
+		ClipsDescendants = true, Active = true, ZIndex = 213,
 	}, panel)
-	Util.Corner(confirm, 999)
-	Util.Stroke(confirm, Theme.Accent, 0.22, 1)
+	Util.New("TextLabel", {
+		Size = UDim2.new(1, -6, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, Text = tostring(message or ""),
+		TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 13,
+		LineHeight = 1.15, TextWrapped = true, RichText = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 213,
+	}, body)
+
+	local close = Util.New("TextButton", {
+		Name = "AAP_CloseHelp", AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 9), Size = UDim2.fromOffset(32, 28),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.48,
+		BorderSizePixel = 0, Text = "×", TextColor3 = Theme.Sub,
+		Font = Enum.Font.Gotham, TextSize = 18,
+		AutoButtonColor = false, ZIndex = 214,
+	}, panel)
+	Util.Corner(close, 8)
+	UI.TouchFeedback(close)
+	local confirm = Util.New("TextButton", {
+		AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -20, 1, -16),
+		Size = UDim2.fromOffset(88, 30),
+		BackgroundColor3 = Theme.AccentSoft, BackgroundTransparency = 0.18,
+		BorderSizePixel = 0, Text = "Entendi", TextColor3 = Theme.Text,
+		Font = Enum.Font.GothamMedium, TextSize = 11,
+		AutoButtonColor = false, ZIndex = 213,
+	}, panel)
+	Util.Corner(confirm, 9)
+	Util.Stroke(confirm, Theme.Accent, 0.62, 1)
 	UI.TouchFeedback(confirm)
 
+	local function layout()
+		local camera = S.Workspace.CurrentCamera or S.Camera
+		local viewport = camera and camera.ViewportSize or Vector2.new(800, 450)
+		local width = math.max(1, math.min(400, viewport.X - 32))
+		local textHeight = 90
+		local ok, bounds = pcall(function()
+			return game:GetService("TextService"):GetTextSize(tostring(message or ""),
+				13, Enum.Font.Gotham, Vector2.new(math.max(width - 46, 1), 10000))
+		end)
+		if ok then textHeight = math.ceil(bounds.Y * 1.15) end
+		local height = math.max(1, math.min(math.max(154 + textHeight, 196), viewport.Y - 32))
+		panel.Size = UDim2.fromOffset(width, height)
+	end
+	layout()
 	State.UI.ActiveHelpDialog = {
-		Overlay = overlay,
-		Panel = panel,
+		Overlay = overlay, Panel = panel,
+		Connections = {root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)},
 	}
-
-	overlay.MouseButton1Click:Connect(UI.CloseHelpDialog)
-	confirm.MouseButton1Click:Connect(UI.CloseHelpDialog)
+	overlay.Activated:Connect(UI.CloseHelpDialog)
+	close.Activated:Connect(UI.CloseHelpDialog)
+	confirm.Activated:Connect(UI.CloseHelpDialog)
 	return true
 end
 
 function UI.CreateHelpButton(parent, title, message, position)
-	if not parent or not message or message == "" then
-		return nil
-	end
-
+	if not parent or not message or message == "" then return nil end
+	-- A small visual with a larger hit area; all header controls share y = 17.
 	local button = Util.New("TextButton", {
-		Name = "AAP_HelpButton",
-		AnchorPoint = Vector2.new(1, 0),
-		Position = position or UDim2.new(1, -68, 0, 6),
-		Size = UDim2.fromOffset(28, 28),
-		BackgroundColor3 = Theme.Surface3,
-		BackgroundTransparency = 0.08,
-		BorderSizePixel = 0,
-		Text = "i",
-		TextColor3 = Theme.Accent2,
-		Font = Enum.Font.GothamBold,
-		TextSize = 11,
-		AutoButtonColor = false,
-		Active = true,
-		ZIndex = 25,
+		Name = "AAP_HelpButton", AnchorPoint = Vector2.new(1, 0),
+		Position = position or UDim2.new(1, -65, 0, 3),
+		Size = UDim2.fromOffset(28, 28), BackgroundTransparency = 1,
+		BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+		Active = true, ZIndex = 25,
 	}, parent)
-	Util.Corner(button, 999)
-	Util.Stroke(button, Theme.Accent, 0.38, 1)
+	local icon = Util.New("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(20, 20),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.35,
+		BorderSizePixel = 0, Text = "?", TextColor3 = Theme.Sub,
+		Font = Enum.Font.GothamMedium, TextSize = 12, ZIndex = 26,
+	}, button)
+	Util.Corner(icon, 999)
+	Util.Stroke(icon, Theme.BorderSoft, 0.38, 1)
 	UI.TouchFeedback(button)
-	button.MouseButton1Click:Connect(function()
-		UI.OpenHelpDialog(title, message)
+	button.Activated:Connect(function()
+		if not State.UI.LayoutEditMode then UI.OpenHelpDialog(title, message) end
 	end)
 	return button
 end
@@ -6741,6 +6395,10 @@ function UI.SetControlAvailable(control, available, unavailableText)
 
 	available = available == true
 	control.Available = available
+	if not available then
+		if control.FinishEditing then control:FinishEditing(false) end
+		if UI.ActiveSlider == control then UI.ActiveSlider, UI.ActiveSliderInput = nil, nil end
+	end
 	control.Card.Active = available
 	control.Card.BackgroundTransparency = available and 0.04 or 0.30
 
@@ -6756,9 +6414,13 @@ function UI.SetControlAvailable(control, available, unavailableText)
 	if control.Switch then
 		control.Switch.BackgroundTransparency = available and 0 or 0.42
 	end
-	if control.Value then
-		control.Value.TextTransparency = available and 0 or 0.38
+	-- Sliders store a number in Value and their text object in Label.
+	local valueLabel = control.Label
+		or (typeof(control.Value) == "Instance" and control.Value)
+	if valueLabel then
+		valueLabel.TextTransparency = available and 0 or 0.38
 	end
+	if control.RefreshPrecision then control:RefreshPrecision() end
 end
 
 function UI.CreateCycle(parent, title, description, options)
@@ -6829,7 +6491,7 @@ function UI.CreateCycle(parent, title, description, options)
 			card,
 			title,
 			options.Help,
-			UDim2.new(1, -109, 0, 3)
+			UDim2.new(1, -110, 0, 3)
 		)
 	end
 	control.Record = UI.RegisterSharedControl(card, parent, title, 66, options)
@@ -6838,6 +6500,159 @@ end
 
 UI.ActiveSlider = nil
 UI.ActiveSliderInput = nil
+UI.ActiveNumericSlider = nil
+
+-- Shared by the full-size and compact sliders. These controls only edit the
+-- existing setting through its original callback.
+function UI.SliderCanInteract(slider)
+	return Runtime.Alive and slider.Available ~= false
+		and not State.UI.LayoutEditMode
+		and not State.UI.ActiveHelpDialog
+		and not State.UI.ActiveChoiceMenu
+		and slider.Card ~= nil and slider.Card.Parent ~= nil
+end
+
+function UI.ParseSliderNumber(text, suffix)
+	if type(text) ~= "string" or #text > 48 then return nil end
+	text = text:match("^%s*(.-)%s*$")
+	local unit = (suffix or ""):match("^%s*(.-)%s*$")
+	if unit ~= "" and text:sub(-#unit) == unit then
+		text = text:sub(1, #text - #unit):match("^%s*(.-)%s*$")
+	end
+	text = text:gsub(",", ".")
+	if not text:match("^[+-]?%d+%.?%d*$")
+		and not text:match("^[+-]?%.%d+$") then return nil end
+	local value = tonumber(text)
+	if not value or value ~= value or math.abs(value) == math.huge then return nil end
+	return value
+end
+
+function UI.RefreshSliderPrecision(slider)
+	local available = slider.Available ~= false and not State.UI.LayoutEditMode
+	if not slider.Editing then
+		slider.Label.Text = tostring(math.floor(slider.Value + 0.5)) .. slider.Suffix
+	end
+	slider.Label.Active = available
+	slider.Label.TextEditable = available
+	slider.Label.TextTransparency = available and 0 or 0.42
+	if slider.ValueStroke then
+		slider.ValueStroke.Color = slider.Editing and Theme.Accent or Theme.BorderSoft
+		slider.ValueStroke.Transparency = slider.Editing and 0.18 or 0.58
+	end
+	for _, entry in ipairs({{slider.Decrease, -1}, {slider.Increase, 1}}) do
+		local button, direction = entry[1], entry[2]
+		if button then
+			local enabled = available and (direction < 0 and slider.Value > slider.Min
+				or direction > 0 and slider.Value < slider.Max)
+			button.Active = enabled
+			button.TextTransparency = enabled and 0.12 or 0.65
+			button.BackgroundTransparency = enabled and 0.32 or 0.70
+		end
+	end
+end
+
+function UI.SetSliderValue(slider, value, notify)
+	if notify and not UI.SliderCanInteract(slider) then return end
+	value = Persistence.FiniteNumber(value, slider.Value or slider.Min)
+	value = math.clamp(math.floor(math.clamp(value, slider.Min, slider.Max) + 0.5),
+		slider.Min, slider.Max)
+	-- A profile refresh or a reused body-region control invalidates a draft.
+	-- Releasing the keyboard later must never overwrite the newly loaded value.
+	if slider.Editing and not notify then slider:FinishEditing(false) end
+	local changed = slider.Value ~= value
+	slider.Value = value
+	local alpha = (value - slider.Min) / math.max(slider.Max - slider.Min, 0.000001)
+	slider.Fill.Size = UDim2.fromScale(alpha, 1)
+	slider.Thumb.Position = UDim2.new(alpha, 0, 0.5, 0)
+	UI.RefreshSliderPrecision(slider)
+	if notify and changed and slider.Callback then slider.Callback(value) end
+end
+
+function UI.CreateSliderValueBox(parent, position, size, anchorPoint)
+	local box = Util.New("TextBox", {
+		Name = "AAP_NumericValue",
+		AnchorPoint = anchorPoint or Vector2.zero,
+		Position = position, Size = size,
+		BackgroundColor3 = Theme.Chip, BackgroundTransparency = 0.20,
+		BorderSizePixel = 0, Text = "", PlaceholderText = "Valor",
+		PlaceholderColor3 = Theme.Dim, TextColor3 = Theme.Accent2,
+		Font = Enum.Font.GothamMedium, TextSize = 10,
+		ClearTextOnFocus = false, MultiLine = false, RichText = false,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 4,
+	}, parent)
+	Util.Corner(box, 8)
+	Util.FitText(box, 7, 10)
+	local stroke = Util.Stroke(box, Theme.BorderSoft, 0.58, 1)
+	return box, stroke
+end
+
+function UI.CreateSliderStepButton(parent, text, position, size, anchorPoint)
+	local button = Util.New("TextButton", {
+		Name = text == "+" and "AAP_Increase" or "AAP_Decrease",
+		AnchorPoint = anchorPoint or Vector2.zero,
+		Position = position, Size = size,
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.32,
+		BorderSizePixel = 0, Text = text,
+		TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium, TextSize = 15,
+		AutoButtonColor = false, ZIndex = 4,
+	}, parent)
+	Util.Corner(button, 8)
+	Util.Stroke(button, Theme.BorderSoft, 0.72, 1)
+	UI.TouchFeedback(button)
+	return button
+end
+
+function UI.BindSliderPrecision(slider)
+	slider.SetValue = UI.SetSliderValue
+	slider.RefreshPrecision = UI.RefreshSliderPrecision
+	function slider:FinishEditing(commit)
+		if not self.Editing then return end
+		local text = self.Label.Text
+		self.Editing = false
+		if UI.ActiveNumericSlider == self then UI.ActiveNumericSlider = nil end
+		if self.Label:IsFocused() then self.Label:ReleaseFocus() end
+		if commit and UI.SliderCanInteract(self) then
+			local value = UI.ParseSliderNumber(text, self.Suffix)
+			if value then
+				self:SetValue(value, true)
+			else
+				UI.Toast("Digite um número válido.")
+			end
+		end
+		UI.RefreshSliderPrecision(self)
+	end
+
+	slider.Label.Focused:Connect(function()
+		if not UI.SliderCanInteract(slider) or UI.ActiveSliderInput then
+			slider.Label:ReleaseFocus()
+			return
+		end
+		if UI.ActiveNumericSlider and UI.ActiveNumericSlider ~= slider then
+			UI.ActiveNumericSlider:FinishEditing(true)
+		end
+		UI.ActiveNumericSlider = slider
+		slider.Editing = true
+		slider.Label.Text = tostring(slider.Value)
+		UI.RefreshSliderPrecision(slider)
+		slider.Label.CursorPosition = #slider.Label.Text + 1
+		slider.Label.SelectionStart = 1
+	end)
+	slider.Label.FocusLost:Connect(function(_, input)
+		local cancelled = input and (input.KeyCode == Enum.KeyCode.Escape
+			or input.UserInputState == Enum.UserInputState.Cancel)
+		slider:FinishEditing(not cancelled)
+	end)
+	for _, entry in ipairs({{slider.Decrease, -1}, {slider.Increase, 1}}) do
+		local button, direction = entry[1], entry[2]
+		button.Activated:Connect(function()
+			if not UI.SliderCanInteract(slider) or UI.ActiveSliderInput then return end
+			if slider.Editing then slider:FinishEditing(true) end
+			slider:SetValue(slider.Value + direction, true)
+		end)
+	end
+end
+
 
 function UI.CreateSlider(
 	parent,
@@ -6863,7 +6678,7 @@ function UI.CreateSlider(
 	}
 
 	local card = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 84),
+		Size = UDim2.new(1, 0, 0, 100),
 		BackgroundColor3 = Theme.Card,
 		BackgroundTransparency = 0.04,
 		BorderSizePixel = 0,
@@ -6873,34 +6688,25 @@ function UI.CreateSlider(
 	Util.Sheen(card, 0.08)
 	Util.Stroke(card, Theme.BorderInner, 0.70, 1)
 
-	local titleLabel = Util.New("TextLabel", {
+	local titleLabel = Util.FitText(Util.New("TextLabel", {
 		Position = UDim2.fromOffset(14, 8),
-		Size = UDim2.new(1, options.Help and -128 or -76, 0, 16),
+		Size = UDim2.new(1, options.Help and -132 or -96, 0, 16),
 		BackgroundTransparency = 1,
 		Text = title,
 		TextColor3 = Theme.Text,
 		Font = Enum.Font.GothamMedium,
 		TextSize = 9,
 		TextXAlignment = Enum.TextXAlignment.Left,
-	}, card)
+	}, card), 7, 10)
 
-	local valueLabel = Util.New("TextLabel", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 8),
-		Size = UDim2.fromOffset(62, 16),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Accent,
-		Font = Enum.Font.GothamBold,
-		TextSize = 9,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	}, card)
+	local valueLabel, valueStroke = UI.CreateSliderValueBox(card,
+		UDim2.new(1, -14, 0, 4), UDim2.fromOffset(70, 26), Vector2.new(1, 0))
 
 	local descriptionText = options.Description
 		or explanations[title]
 		or "Mude o valor até encontrar o ajuste que você prefere."
 	local descriptionLabel = Util.FitText(Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 27),
+		Position = UDim2.fromOffset(14, 32),
 		Size = UDim2.new(1, -28, 0, 16),
 		BackgroundTransparency = 1,
 		Text = descriptionText,
@@ -6914,8 +6720,8 @@ function UI.CreateSlider(
 
 	local hitArea = Util.New("TextButton", {
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 10, 1, -1),
-		Size = UDim2.new(1, -20, 0, 24),
+		Position = UDim2.new(0, 48, 1, -4),
+		Size = UDim2.new(1, -96, 0, 28),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Text = "",
@@ -6925,7 +6731,7 @@ function UI.CreateSlider(
 	local track = Util.New("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 4, 0.5, 0),
-		Size = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.new(1, -8, 0, 6),
 		BackgroundColor3 = Theme.Chip,
 		BorderSizePixel = 0,
 		Active = true,
@@ -6946,7 +6752,7 @@ function UI.CreateSlider(
 	local thumb = Util.New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0, 0, 0.5, 0),
-		Size = UDim2.fromOffset(18, 18),
+		Size = UDim2.fromOffset(16, 16),
 		BackgroundColor3 = Theme.Text,
 		BorderSizePixel = 0,
 		Active = true,
@@ -6956,7 +6762,13 @@ function UI.CreateSlider(
 	Util.Sheen(thumb, 0.01)
 	Util.Stroke(thumb, Theme.Accent2, 0.02, 2)
 
+	local decrease = UI.CreateSliderStepButton(card, "−",
+		UDim2.new(0, 12, 1, -4), UDim2.fromOffset(28, 28), Vector2.new(0, 1))
+	local increase = UI.CreateSliderStepButton(card, "+",
+		UDim2.new(1, -12, 1, -4), UDim2.fromOffset(28, 28), Vector2.new(1, 1))
+
 	local slider = {
+		Decrease = decrease, Increase = increase, ValueStroke = valueStroke,
 		Card = card,
 		Title = titleLabel,
 		Description = descriptionLabel,
@@ -6975,54 +6787,14 @@ function UI.CreateSlider(
 			card,
 			title,
 			options.Help,
-			UDim2.new(1, -82, 0, 2)
+			UDim2.new(1, -90, 0, 3)
 		)
 	end
 
-	function slider:SetValue(value, notify)
-		value = math.clamp(
-			value,
-			self.Min,
-			self.Max
-		)
-
-		local alpha =
-			(value - self.Min)
-			/
-			math.max(
-				self.Max - self.Min,
-			0.000001
-			)
-
-		self.Value = value
-
-		self.Fill.Size =
-			UDim2.fromScale(
-				alpha,
-				1
-			)
-
-		self.Thumb.Position =
-			UDim2.new(
-				alpha,
-				0,
-				0.5,
-				0
-			)
-
-		self.Label.Text =
-			tostring(
-				math.floor(value + 0.5)
-			)
-			..
-			self.Suffix
-
-		if notify and self.Callback then
-			self.Callback(value)
-		end
-	end
+	UI.BindSliderPrecision(slider)
 
 	local function start(input)
+		if not UI.SliderCanInteract(slider) then return end
 		if input.UserInputType == Enum.UserInputType.Touch
 			or input.UserInputType == Enum.UserInputType.MouseButton1 then
 			if UI.ActiveSliderInput
@@ -7052,7 +6824,7 @@ function UI.CreateSlider(
 	thumb.InputBegan:Connect(start)
 
 	slider:SetValue(initial, false)
-	slider.Record = UI.RegisterSharedControl(card, parent, title, 84, options)
+	slider.Record = UI.RegisterSharedControl(card, parent, title, 100, options)
 
 	return slider
 end
@@ -8576,6 +8348,7 @@ function UI.CreateNavButton(text)
 end
 
 function UI.ShowPage(page)
+	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(false) end
 	if State.UI.ActiveChoiceMenu then
 		UI.CloseChoiceMenu()
 	end
@@ -8872,13 +8645,13 @@ end
 function UI.CreateCompactSlider(parent, position, title, minimum, maximum, initial, suffix, callback)
 	local holder = Util.New("Frame", {
 		Position = position,
-		Size = UDim2.new(1, 0, 0, 42),
+		Size = UDim2.new(1, 0, 0, 72),
 		BackgroundTransparency = 1,
 	}, parent)
 
 	Util.New("TextLabel", {
 		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.new(1, -48, 0, 14),
+		Size = UDim2.new(1, 0, 0, 14),
 		BackgroundTransparency = 1,
 		Text = title,
 		TextColor3 = Theme.Text,
@@ -8887,20 +8660,11 @@ function UI.CreateCompactSlider(parent, position, title, minimum, maximum, initi
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, holder)
 
-	local valueLabel = Util.New("TextLabel", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, 0, 0, 0),
-		Size = UDim2.fromOffset(45, 14),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	}, holder)
+	local valueLabel, valueStroke = UI.CreateSliderValueBox(holder,
+		UDim2.fromOffset(26, 18), UDim2.new(1, -52, 0, 28))
 
 	local hitArea = Util.New("TextButton", {
-		Position = UDim2.fromOffset(0, 15),
+		Position = UDim2.fromOffset(0, 47),
 		Size = UDim2.new(1, 0, 0, 25),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -8938,7 +8702,13 @@ function UI.CreateCompactSlider(parent, position, title, minimum, maximum, initi
 	Util.Sheen(thumb, 0.01)
 	Util.Stroke(thumb, Theme.Accent2, 0.02, 2)
 
+	local decrease = UI.CreateSliderStepButton(holder, "−",
+		UDim2.fromOffset(0, 18), UDim2.fromOffset(24, 28))
+	local increase = UI.CreateSliderStepButton(holder, "+",
+		UDim2.new(1, 0, 0, 18), UDim2.fromOffset(24, 28), Vector2.new(1, 0))
+
 	local slider = {
+		Decrease = decrease, Increase = increase, ValueStroke = valueStroke,
 		Card = holder,
 		Track = track,
 		Fill = fill,
@@ -8950,20 +8720,10 @@ function UI.CreateCompactSlider(parent, position, title, minimum, maximum, initi
 		Callback = callback,
 	}
 
-	function slider:SetValue(value, notify)
-		value = math.clamp(value, self.Min, self.Max)
-		self.Value = value
-		local range = math.max(self.Max - self.Min, 0.000001)
-		local alpha = (value - self.Min) / range
-		self.Fill.Size = UDim2.fromScale(alpha, 1)
-		self.Thumb.Position = UDim2.new(alpha, 0, 0.5, 0)
-		self.Label.Text = tostring(math.floor(value + 0.5)) .. self.Suffix
-		if notify and self.Callback then
-			self.Callback(value)
-		end
-	end
+	UI.BindSliderPrecision(slider)
 
 	local function start(input)
+		if not UI.SliderCanInteract(slider) then return end
 		if input.UserInputType ~= Enum.UserInputType.Touch
 			and input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 			return
@@ -9606,7 +9366,7 @@ function Pages.BuildVisionAim()
 
 	controls.Accuracy = UI.CreateCompactSlider(
 		sliderColumn,
-		UDim2.fromOffset(0, 48),
+		UDim2.fromOffset(0, 82),
 		"PRECISÃO",
 		0,
 		100,
@@ -9620,7 +9380,7 @@ function Pages.BuildVisionAim()
 
 	controls.Smoothing = UI.CreateCompactSlider(
 		sliderColumn,
-		UDim2.fromOffset(0, 96),
+		UDim2.fromOffset(0, 164),
 		"SUAVIDADE",
 		0,
 		100,
@@ -12378,15 +12138,42 @@ function Pages.BuildEngine()
 		UI.CreateToggle(
 			mobileSupport,
 			"Troca de alvo por gesto",
-			"Deslize para o lado para passar ao próximo jogador.",
+			"Deslize na direção do próximo jogador.",
 			{
-				Help = "Cada gesto troca para o próximo jogador naquela direção. A mira continua funcionando durante a troca; pequenos movimentos e toques parados não fazem nada.",
+				Help = "Puxe para a direita para escolher um alvo à direita, ou para a esquerda para voltar. Você pode continuar arrastando para trocar de novo. Parar o dedo mantém o alvo. Use Inverter gesto se preferir o sentido contrário.",
 			}
 		)
 	local mobileFriendlyVisible = S.UIS.TouchEnabled == true
 	controls.MobileFriendly.Card.Visible = mobileFriendlyVisible
 	if controls.MobileFriendly.Record then
 		controls.MobileFriendly.Record.Card.Visible = mobileFriendlyVisible
+	end
+
+	controls.SwipeDistance = UI.CreateSlider(mobileSupport,
+		"Movimento para trocar", 18, 180, Config.MobileFriendlyMoveThreshold, " px",
+		function(value)
+			if not TargetSwipe.IsEnabled() then
+				if controls.SwipeDistance then
+					controls.SwipeDistance:SetValue(Config.MobileFriendlyMoveThreshold, false)
+				end
+				return
+			end
+			Config.MobileFriendlyMoveThreshold = math.floor(value + 0.5)
+			TargetSwipe.Cancel("Movimento do gesto alterado")
+		end,
+		{Id = "mobile.swipe.distance", Description = "Maior precisa de um deslize mais longo."})
+	controls.SwipeInvert = UI.CreateToggle(mobileSupport, "Inverter gesto",
+		"Troca o sentido: puxar para a direita escolhe um alvo à esquerda.",
+		{Id = "mobile.swipe.invert"})
+	controls.SwipeInvert.Card.MouseButton1Click:Connect(function()
+		if not TargetSwipe.IsEnabled() then return end
+		Config.MobileFriendlyInvertGesture = not Config.MobileFriendlyInvertGesture
+		TargetSwipe.Cancel("Sentido do gesto alterado")
+		controls.Refresh()
+	end)
+	for _, control in ipairs({controls.SwipeDistance, controls.SwipeInvert}) do
+		control.Card.Visible = mobileFriendlyVisible
+		if control.Record then control.Record.Card.Visible = mobileFriendlyVisible end
 	end
 
 	UI.Section(
@@ -12867,10 +12654,13 @@ function Pages.BuildEngine()
 			"Disponível quando Mostrar atalhos na tela estiver ativado."
 		)
 
-		UI.SetToggle(
-			controls.MobileFriendly,
-			Config.MobileFriendlySwitch
-		)
+		UI.SetToggle(controls.MobileFriendly, Config.MobileFriendlySwitch)
+		UI.SetToggle(controls.SwipeInvert, Config.MobileFriendlyInvertGesture)
+		controls.SwipeDistance:SetValue(Config.MobileFriendlyMoveThreshold, false)
+		for _, control in ipairs({controls.SwipeDistance, controls.SwipeInvert}) do
+			UI.SetControlAvailable(control, Config.MobileFriendlySwitch,
+				"Disponível quando Troca de alvo por gesto estiver ativada.")
+		end
 
 		controls.Curve.Value.Text =
 			Config.SmoothingCurve == "DYNAMIC"
@@ -13751,47 +13541,18 @@ function UI.SetMobileQuickLocked(locked)
 end
 
 function UI.SetMobileFriendlySwitch(enabled)
-	local nextValue = enabled == true
-
-	if nextValue and not S.UIS.TouchEnabled then
-		Config.MobileFriendlySwitch = false
-		UI.Toast("A troca por gesto funciona somente em telas de toque.")
-
-		if State.UI.RefreshEngineControls then
-			State.UI.RefreshEngineControls()
-		end
-
-		return false
-	end
-
+	local nextValue = enabled == true and S.UIS.TouchEnabled == true
 	local changed = Config.MobileFriendlySwitch ~= nextValue
 	Config.MobileFriendlySwitch = nextValue
-
-	if not nextValue then
-		Aim.CancelMobileFriendlySwitch(
-			"Troca por gesto desativada",
-			true
-		)
-		local mobile = State.MobileFriendly
-		if mobile then
-			mobile.LastSourceTarget = nil
-			mobile.LastDestinationTarget = nil
-			mobile.LastDirection = 0
-		end
+	TargetSwipe.Cancel(nextValue and "Troca por gesto ativada" or "Troca por gesto desativada")
+	if State.UI.RefreshEngineControls then State.UI.RefreshEngineControls() end
+	if enabled and not nextValue then
+		UI.Toast("A troca por gesto funciona somente em telas de toque.")
+	elseif changed then
+		UI.Toast(nextValue
+			and "Deslize na direção do próximo alvo. Continue deslizando para trocar de novo."
+			or "Troca por gesto desativada.")
 	end
-
-	if State.UI.RefreshEngineControls then
-		State.UI.RefreshEngineControls()
-	end
-
-	if changed then
-		UI.Toast(
-			nextValue
-			and "Troca por gesto ativada. Deslize para o lado para trocar."
-			or "Troca por gesto desativada."
-		)
-	end
-
 	return changed
 end
 
@@ -13856,7 +13617,7 @@ function UI.SetAimEnabled(enabled, reason, allowDisable)
 	State.AimActivationIntent = nextValue
 
 	if changed and not nextValue then
-		Aim.CancelMobileFriendlySwitch(
+		TargetSwipe.Cancel(
 			reason or "Assistência desativada"
 		)
 		Aim.ClearCurrentTarget(reason or "Assistência desativada")
@@ -14041,7 +13802,7 @@ function UI.ApplyConfigurationState(message, resetLayout)
 	Config.AimMode = "AUTO"
 
 	State.ActiveQuickPresetKey = nil
-	Aim.CancelMobileFriendlySwitch(
+	TargetSwipe.Cancel(
 		message or "Configuração atualizada"
 	)
 	Aim.ClearCurrentTarget(message or "Configuração atualizada")
@@ -14100,6 +13861,7 @@ function UI.PlayerFromWorldInstance(instance)
 end
 
 function UI.IsPointOverInteractiveUI(screenPoint, includeExternalButtons)
+	if State.UI.ActiveHelpDialog then return true end
 	local function inside(guiObject)
 		if not guiObject
 			or not guiObject.Parent
@@ -14520,661 +14282,190 @@ end
 State.UI.SelectExclusivePlayer = UI.SelectExclusivePlayer
 
 function UI.WireWorldTapSelection()
-	local activeInput = nil
-	local activeTouchChangedConnection = nil
-	local startPoint = nil
-	local latestPoint = nil
-	local startedAt = 0
-	local moved = false
-	local pressedPlayer = nil
-	local mobileSwitchStarted = false
-	local mobileGestureEligible = false
-	local mobileGestureTarget = nil
-	local mobileGestureMovement = nil
-	local panGestureEligible = false
-	local panGestureTarget = nil
-	local panGestureStartedAt = 0
-	local panTranslationOrigin = nil
-	local mobileIntentDirection = 0
-	local mobileIntentSamples = 0
-	local mobileIntentLastMovement = nil
-	local lastMobileCommitAt = 0
-	local handleInputChanged
+	local inputs = {}
+	local owner = nil
+	local mouseInput = nil
+	local refreshPending = false
 
-	local function resetMobileIntentEvidence()
-		mobileIntentDirection = 0
-		mobileIntentSamples = 0
-		mobileIntentLastMovement = nil
+	local function pointOf(input)
+		return Vector2.new(input.Position.X, input.Position.Y)
 	end
 
-	local function resetInputState()
-		if activeTouchChangedConnection then
-			activeTouchChangedConnection =
-				Runtime.Untrack(activeTouchChangedConnection)
-		end
-
-		activeInput = nil
-		startPoint = nil
-		latestPoint = nil
-		startedAt = 0
-		moved = false
-		pressedPlayer = nil
-		mobileSwitchStarted = false
-		mobileGestureEligible = false
-		mobileGestureTarget = nil
-		mobileGestureMovement = nil
-		panGestureEligible = false
-		panGestureTarget = nil
-		panGestureStartedAt = 0
-		panTranslationOrigin = nil
-		resetMobileIntentEvidence()
+	local function reset()
+		table.clear(inputs)
+		owner = nil
+		mouseInput = nil
 	end
+	State.UI.ResetWorldGestureInput = reset
 
-	State.UI.ResetWorldGestureInput = resetInputState
-
-	local function publishMobileSwitchResult(changed, player)
+	State.UI.OnSwipeTargetChanged = function(_player, selectionChanged)
+		if not selectionChanged or refreshPending then return end
+		refreshPending = true
 		task.defer(function()
-			if not Runtime.Alive then
-				return
-			end
-
-			if player then
-				ESP.RefreshAll()
-
-				if State.UI.RefreshPlayers then
-					State.UI.RefreshPlayers()
-				else
-					UI.RefreshTargetSidebar()
-				end
-
-				if State.UI.RefreshFilters then
-					State.UI.RefreshFilters()
-				end
-
-				if State.UI.RefreshAimControls then
-					State.UI.RefreshAimControls()
-				end
-			end
-
-			if changed and player then
-				UI.Toast("Novo alvo: " .. player.DisplayName)
-			else
-				UI.Toast("Não há outro jogador disponível nessa direção.")
-			end
+			refreshPending = false
+			if not Runtime.Alive then return end
+			ESP.RefreshAll()
+			if State.UI.RefreshPlayers then State.UI.RefreshPlayers() end
+			if State.UI.RefreshAimControls then State.UI.RefreshAimControls() end
 		end)
 	end
 
-	local function inputPoint(input)
-		return Vector2.new(
-			input.Position.X,
-			input.Position.Y
-		)
-	end
-
-	local function isSelectionInput(input)
-		return input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseButton1
-	end
-
-	local function matchesMovement(input)
-		return activeInput
-			and (
-				input == activeInput
-				or (
-					activeInput.UserInputType == Enum.UserInputType.MouseButton1
-					and input.UserInputType == Enum.UserInputType.MouseMovement
-				)
-			)
-	end
-
-	local function finishesInput(input)
-		return activeInput
-			and (
-				input == activeInput
-				or (
-					activeInput.UserInputType == Enum.UserInputType.MouseButton1
-					and input.UserInputType == Enum.UserInputType.MouseButton1
-				)
-			)
-	end
-
-	local function isCameraGestureStart(point, processed)
-		if not point
-			or not Aim.MobileFriendlyCanBegin()
-			or not S.Camera then
-
-			return false
-		end
-
-		local viewport = S.Camera.ViewportSize
-		local startArea = math.clamp(
-			Config.MobileFriendlyStartArea or 0.28,
-			0.25,
-			0.70
-		)
-
-		-- The left side stays reserved for the movement joystick. Actual buttons
-		-- are filtered by UI.IsPointOverInteractiveUI instead of rejecting the
-		-- whole lower-right camera area, where many players naturally drag.
-		return point.X >= viewport.X * startArea
-			and point.X <= viewport.X
-			and point.Y >= 0
-			and point.Y <= viewport.Y
-	end
-
-	local function mobileMovementRequired()
-		local viewport = S.Camera and S.Camera.ViewportSize
-			or Vector2.new(800, 450)
-		local shortestSide = math.max(
-			math.min(viewport.X, viewport.Y),
-			1
-		)
-
-		return math.max(
-			Config.MobileFriendlyMoveThreshold or 42,
-			shortestSide * 0.04
-		)
-	end
-
-	local function beginMobileGesture(expectedTarget)
-		if mobileSwitchStarted
-			or os.clock() - lastMobileCommitAt < 0.16
-			or not Aim.MobileFriendlyCanBegin() then
-
-			return false
-		end
-
-		local began = Aim.BeginMobileFriendlySwitch(expectedTarget)
-
-		if not began then
-			return false
-		end
-
-		mobileSwitchStarted = true
-		mobileGestureEligible = false
-		moved = true
-		return true
-	end
-
-	local function finishMobileGesture(horizontalDelta)
-		if not mobileSwitchStarted
-			or not Aim.MobileFriendlyInProgress() then
-
-			return false
-		end
-
-		local movementX =
-			Persistence.FiniteNumber(horizontalDelta, 0)
-
-		-- Keep the direction confirmed at the start of the swipe. A noisy final
-		-- touch sample must not turn a rightward switch into a leftward one.
-		if mobileIntentDirection ~= 0
-			and movementX * mobileIntentDirection <= 0 then
-
-			movementX = mobileIntentDirection
-				* math.max(math.abs(movementX), mobileMovementRequired())
-		end
-
-		local changed, player =
-			Aim.CommitMobileFriendlySwitch(movementX)
-
-		lastMobileCommitAt = os.clock()
-		publishMobileSwitchResult(changed, player)
-		return true
-	end
-
-	local function evaluateMobileMovement(
-		movement,
-		expectedTarget,
-		gestureStartedAt
-	)
-		if not movement or mobileSwitchStarted then
-			return false
-		end
-		mobileGestureMovement = movement
-
-		local horizontalMovement = math.abs(movement.X)
-		local verticalMovement = math.abs(movement.Y)
-		local requiredMovement = mobileMovementRequired()
-		local horizontalRatio = math.clamp(
-			Config.MobileFriendlyHorizontalRatio or 1.05,
-			0.75,
-			3
-		)
-		local evidenceStart = math.max(
-			6,
-			requiredMovement * 0.18
-		)
-
-		if horizontalMovement >= evidenceStart
-			and horizontalMovement
-				>= verticalMovement * horizontalRatio then
-
-			local direction = movement.X < 0 and -1 or 1
-			local intentDelay = 0.045
-			local evidenceStep = math.max(
-				5,
-				requiredMovement * 0.10
-			)
-
-			-- A single large/stale TouchPan value is not proof of a swipe. Require
-			-- two distinct advances in the same horizontal direction after the
-			-- finger has existed for a few frames.
-			if mobileIntentDirection ~= 0
-				and mobileIntentDirection ~= direction then
-
-				resetMobileIntentEvidence()
-			end
-
-			if mobileIntentDirection == 0 then
-				mobileIntentDirection = direction
-				mobileIntentSamples = 1
-				mobileIntentLastMovement = movement
-			elseif mobileIntentLastMovement
-				and direction * (
-					movement.X
-					- mobileIntentLastMovement.X
-				) >= evidenceStep then
-
-				mobileIntentSamples += 1
-				mobileIntentLastMovement = movement
-			end
-
-			if horizontalMovement >= requiredMovement
-				and os.clock() - (gestureStartedAt or startedAt)
-				>= intentDelay
-				and mobileIntentSamples >= 2 then
-
-				local began = beginMobileGesture(expectedTarget)
-
-				if began then
-					finishMobileGesture(movement.X)
-					return true
+	local function blocked(point)
+		if State.UI.LayoutEditMode or UI.IsPointOverInteractiveUI(point, false) then return true end
+		local ok, objects = pcall(function()
+			return S.PlayerGui:GetGuiObjectsAtPosition(math.floor(point.X), math.floor(point.Y))
+		end)
+		if ok and objects and S.Camera then
+			local viewport = S.Camera.ViewportSize
+			for _, object in ipairs(objects) do
+				if (object:IsA("GuiButton") or object:IsA("TextBox"))
+					and UI.PointInside(object, point) then
+					local size = object.AbsoluteSize
+					-- Reject actual jump/fire/menu buttons without rejecting a
+					-- game's full-screen transparent camera-capture surface.
+					if size.X * size.Y < viewport.X * viewport.Y * 0.3 then return true end
 				end
 			end
 		end
-
 		return false
 	end
 
-	local function handleInputBegan(input, processed)
-		local isTouch =
-			input.UserInputType == Enum.UserInputType.Touch
-
-		if activeInput
-			or not isSelectionInput(input)
-			or (processed and not isTouch) then
-
-			return
-		end
-
-		local point = inputPoint(input)
-		-- Only this script's own controls may block a touch gesture. Mobile camera
-		-- touches are frequently marked as processed by Roblox or by the game, and
-		-- some games place a transparent button across the whole camera area.
-		if UI.IsPointOverInteractiveUI(
-			point,
-			false
-		) then
-			return
-		end
-
-		local touchCanSwitch =
-			isTouch
-			and isCameraGestureStart(point, processed)
-		local canSelectByTap = Config.TapSelectPlayer == true
-
-		if processed and not touchCanSwitch then
-			return
-		end
-
-		if not touchCanSwitch and not canSelectByTap then
-			return
-		end
-
-		activeInput = input
-		startPoint = point
-		latestPoint = point
-		startedAt = os.clock()
-		moved = false
-		mobileSwitchStarted = false
-		mobileGestureEligible = touchCanSwitch
-		mobileGestureTarget = touchCanSwitch
-			and State.CurrentTarget
-			or nil
-		mobileGestureMovement = nil
-		panGestureEligible = false
-		panGestureTarget = nil
-		panGestureStartedAt = 0
-		panTranslationOrigin = nil
-		resetMobileIntentEvidence()
-		pressedPlayer = Config.TapSelectPlayer
-			and UI.ResolvePlayerAtScreenPoint(point)
-			or nil
-
-		local capturedInput = input
-		local capturedStartedAt = startedAt
-
-		if isTouch then
-			local changedConnection = nil
-			local changedOk = pcall(function()
-				changedConnection = input.Changed:Connect(function(property)
-					if activeInput == capturedInput
-						and (
-							property == "Position"
-							or property == "UserInputState"
-						) then
-
-						handleInputChanged(capturedInput)
-					end
-				end)
-			end)
-
-			if changedOk and changedConnection then
-				activeTouchChangedConnection =
-					Runtime.Track(changedConnection)
-			end
-		end
-
-		task.delay(
-			math.max(Config.MobileFriendlyGestureTimeout or 3, 1),
-			function()
-				if activeInput == capturedInput
-					and startedAt == capturedStartedAt then
-
-					if Aim.MobileFriendlyInProgress() then
-						Aim.CancelMobileFriendlySwitch(
-							"Troca por gesto: toque encerrado por segurança",
-							true
-						)
-					else
-						resetInputState()
-					end
-				end
-			end
-		)
+	local function cameraArea(point)
+		local camera = S.Workspace.CurrentCamera
+		if not camera then return false end
+		local viewport = camera.ViewportSize
+		return point.X >= viewport.X * Config.MobileFriendlyStartArea
+			and point.X <= viewport.X and point.Y >= 0 and point.Y <= viewport.Y
 	end
 
-	-- Some executors forward only the generic input signals while others expose
-	-- the dedicated touch signals. Both paths are intentionally connected; the
-	-- activeInput guard makes duplicate delivery harmless.
-	Runtime.Track(S.UIS.InputBegan:Connect(handleInputBegan))
-	Runtime.Track(S.UIS.TouchStarted:Connect(handleInputBegan))
-
-	handleInputChanged = function(input)
-		if not matchesMovement(input) then
+	local function update(input, position)
+		local entry = inputs[input]
+		if not entry then return end
+		local point = position or pointOf(input)
+		if point.X == entry.Last.X and point.Y == entry.Last.Y then return end
+		entry.Last = point
+		entry.MaxTravel = math.max(entry.MaxTravel, (point - entry.Start).Magnitude)
+		if input ~= owner or not entry.Swipe then return end
+		if not TargetSwipe.CanReceiveInput() then
+			entry.Origin = point
+			return
+		end
+		local camera = S.Workspace.CurrentCamera
+		if entry.Camera ~= camera then
+			entry.Camera, entry.Reference, entry.Origin = camera, camera.CFrame, point
+			return
+		end
+		local movement = point - entry.Origin
+		local threshold = Config.MobileFriendlyMoveThreshold
+		if math.abs(movement.Y) >= threshold
+			and math.abs(movement.X) < math.abs(movement.Y) * Config.MobileFriendlyHorizontalRatio then
+			-- A vertical camera movement must not leave a large diagonal offset
+			-- that swallows the next deliberate horizontal pull.
+			entry.Origin, entry.Reference = point, camera.CFrame
+			return
+		end
+		if math.abs(movement.X) < threshold
+			or math.abs(movement.X) < math.abs(movement.Y) * Config.MobileFriendlyHorizontalRatio then
 			return
 		end
 
-		if activeInput.UserInputType == Enum.UserInputType.Touch
-			and (
-				activeInput.UserInputState == Enum.UserInputState.End
-				or activeInput.UserInputState == Enum.UserInputState.Cancel
-			) then
+		-- Consume one deliberate pull before calling any other code. Duplicate
+		-- events, frame polling and a stationary finger then cannot repeat it.
+		entry.Origin = point
+		entry.Swiped = true
+		local reference = entry.Reference
+		entry.Reference = S.Workspace.CurrentCamera.CFrame
+		TargetSwipe.Request(movement.X, reference)
+	end
 
-			return
-		end
-
-		latestPoint = inputPoint(input)
-		local movement = latestPoint - startPoint
-		local movementDistance = movement.Magnitude
-		mobileGestureMovement = movement
-
-		if mobileSwitchStarted then
-			local mobile = State.MobileFriendly
-
-			if mobile and mobile.Active then
-				mobile.LastMovementAt = os.clock()
-			end
-		end
-
-		if movementDistance
-			> (Config.TapSelectMoveThreshold or 14) then
-
-			moved = true
-		end
-
-		if mobileGestureEligible
-			and activeInput.UserInputType == Enum.UserInputType.Touch
-			and not mobileSwitchStarted
-			and Aim.MobileFriendlyCanBegin() then
-
-			evaluateMobileMovement(
-				movement,
-				mobileGestureTarget,
-				startedAt
-			)
+	local function ended(input, cancelled)
+		local entry = inputs[input]
+		if not entry then return end
+		if not cancelled and input.UserInputType == Enum.UserInputType.Touch then update(input) end
+		inputs[input] = nil
+		if owner == input then owner = nil end
+		if mouseInput == input then mouseInput = nil end
+		if not cancelled and entry.Tap and Config.TapSelectPlayer
+			and not entry.Swiped and entry.MaxTravel <= Config.TapSelectMoveThreshold
+			and os.clock() - entry.StartedAt <= Config.TapSelectMaxDuration
+			and not blocked(entry.Last) then
+			local player = entry.PressedPlayer or UI.ResolvePlayerAtScreenPoint(entry.Last)
+			if player then UI.SelectExclusivePlayer(player, "Jogador selecionado na tela") end
 		end
 	end
 
-	Runtime.Track(S.UIS.InputChanged:Connect(handleInputChanged))
-	Runtime.Track(S.UIS.TouchMoved:Connect(handleInputChanged))
+	local function began(input, processed)
+		local isTouch = input.UserInputType == Enum.UserInputType.Touch
+		local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
+		if inputs[input] or (not isTouch and not isMouse) or (isMouse and processed) then return end
+		local point = pointOf(input)
+		if blocked(point) then return end
+		local canSwipe = isTouch and TargetSwipe.CanReceiveInput() and cameraArea(point)
+		local canTap = Config.TapSelectPlayer == true and (not processed or canSwipe)
+		if not canSwipe and not canTap then return end
+		if owner and (owner.UserInputState == Enum.UserInputState.End
+			or owner.UserInputState == Enum.UserInputState.Cancel) then
+			ended(owner, true)
+		end
+		inputs[input] = {
+			Start = point, Last = point, Origin = point, MaxTravel = 0,
+			StartedAt = os.clock(), Tap = canTap, Swipe = canSwipe,
+			Swiped = false, Reference = S.Workspace.CurrentCamera and S.Workspace.CurrentCamera.CFrame,
+			Camera = S.Workspace.CurrentCamera,
+			PressedPlayer = canTap and UI.ResolvePlayerAtScreenPoint(point) or nil,
+		}
+		if canSwipe and not owner then owner = input end
+		if isMouse then mouseInput = input end
+	end
 
-	-- TouchPan remains a compatibility route for clients that replace the touch
-	-- InputObject. It must begin fresh and records its own zero point, preventing
-	-- an old accumulated translation from becoming an unintended switch.
-	local touchPanConnection = nil
-	local touchPanOk = pcall(function()
-		touchPanConnection = S.UIS.TouchPan:Connect(function(
-			touchPositions,
-			totalTranslation,
-			_velocity,
-			inputState,
-			processed
-		)
-			if activeInput then
-				-- Some clients update Position without forwarding a changed event.
-				-- Read the captured finger; never use the aggregate translation.
-				handleInputChanged(activeInput)
-				return
+	local function changed(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			if mouseInput then update(mouseInput, pointOf(input)) end
+		elseif input.UserInputState == Enum.UserInputState.Cancel then
+			ended(input, true)
+		elseif input.UserInputState == Enum.UserInputState.End then
+			ended(input, false)
+		else
+			update(input)
+		end
+	end
+
+	local function finished(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 and mouseInput then
+			update(mouseInput, pointOf(input))
+			ended(mouseInput, input.UserInputState == Enum.UserInputState.Cancel)
+		else
+			ended(input, input.UserInputState == Enum.UserInputState.Cancel)
+		end
+	end
+
+	local function guarded(callback)
+		return function(...)
+			if not Runtime.Alive then return end
+			local ok, message = pcall(callback, ...)
+			if not ok then
+				reset()
+				State.LastRuntimeError = string.sub(tostring(message), 1, 240)
+				State.Swipe.LastResult = "Toque reiniciado; mira mantida"
 			end
-			if inputState ~= Enum.UserInputState.End
-				and inputState ~= Enum.UserInputState.Cancel
-				and (type(touchPositions) ~= "table" or #touchPositions ~= 1) then
-				panGestureEligible = false
-				panGestureTarget = nil
-				panTranslationOrigin = nil
-				resetMobileIntentEvidence()
-				return
-			end
+		end
+	end
 
-			local translation = totalTranslation
-				and Vector2.new(
-					totalTranslation.X,
-					totalTranslation.Y
-				)
-				or nil
+	-- The input object is the finger's identity. Both event families may
+	-- report it; the registry and consumed origin make delivery idempotent.
+	Runtime.Track(S.UIS.InputBegan:Connect(guarded(began)))
+	Runtime.Track(S.UIS.TouchStarted:Connect(guarded(began)))
+	Runtime.Track(S.UIS.InputChanged:Connect(guarded(changed)))
+	Runtime.Track(S.UIS.TouchMoved:Connect(guarded(changed)))
+	Runtime.Track(S.UIS.InputEnded:Connect(guarded(finished)))
+	Runtime.Track(S.UIS.TouchEnded:Connect(guarded(finished)))
+	Runtime.Track(S.UIS.WindowFocusReleased:Connect(reset))
 
-			if inputState == Enum.UserInputState.End
-				or inputState == Enum.UserInputState.Cancel then
-
-				local finalMovement = translation
-					and panTranslationOrigin
-					and (translation - panTranslationOrigin)
-					or mobileGestureMovement
-
-				if mobileSwitchStarted
-					and Aim.MobileFriendlyInProgress() then
-
-					if inputState == Enum.UserInputState.Cancel then
-						Aim.CancelMobileFriendlySwitch(
-							"Troca por gesto: toque cancelado",
-							true
-						)
-					elseif finalMovement then
-						finishMobileGesture(finalMovement.X)
-					else
-						Aim.CancelMobileFriendlySwitch(
-							"Troca por gesto: movimento final indisponível",
-							true
-						)
-					end
-				end
-
-				panGestureEligible = false
-				panGestureTarget = nil
-				panGestureStartedAt = 0
-				panTranslationOrigin = nil
-
-				if not activeInput then
-					mobileSwitchStarted = false
-					mobileGestureMovement = nil
-					resetMobileIntentEvidence()
-				end
-
-				return
-			end
-
-			if inputState == Enum.UserInputState.Begin then
-				panGestureEligible = false
-				panGestureTarget = nil
-				panGestureStartedAt = os.clock()
-				panTranslationOrigin = translation or Vector2.zero
-
-				if mobileGestureEligible and startPoint then
-					panGestureEligible = true
-					panGestureTarget = mobileGestureTarget
-				elseif not activeInput
-					and type(touchPositions) == "table"
-					and #touchPositions == 1 then
-
-					local rawPoint = touchPositions[1]
-					local point = rawPoint
-						and Vector2.new(rawPoint.X, rawPoint.Y)
-
-					if point
-						and isCameraGestureStart(point, processed)
-						and not UI.IsPointOverInteractiveUI(
-							point,
-							false
-						) then
-
-						panGestureEligible = true
-						panGestureTarget = State.CurrentTarget
-					end
-				end
-
-				if panGestureEligible then
-					mobileGestureMovement = Vector2.zero
-					resetMobileIntentEvidence()
-				end
-
-				return
-			end
-
-			-- If Begin was omitted, only an already tracked direct touch may arm
-			-- this fallback. The current translation becomes the baseline and is
-			-- never evaluated on the same event.
-			if not panGestureEligible
-				and not mobileSwitchStarted then
-
-				if mobileGestureEligible
-					and activeInput
-					and startPoint then
-
-					panGestureEligible = true
-					panGestureTarget = mobileGestureTarget
-					panGestureStartedAt = os.clock()
-					panTranslationOrigin = translation or Vector2.zero
-
-					resetMobileIntentEvidence()
-				end
-
-				return
-			end
-
-			if panGestureEligible
-				and translation
-				and panTranslationOrigin then
-
-				mobileGestureMovement =
-					translation - panTranslationOrigin
-
-				if mobileSwitchStarted then
-					local mobile = State.MobileFriendly
-
-					if mobile and mobile.Active then
-						mobile.LastMovementAt = os.clock()
-					end
-				end
-
-				if not mobileSwitchStarted then
-					evaluateMobileMovement(
-						mobileGestureMovement,
-						panGestureTarget,
-						panGestureStartedAt
-					)
-				end
-			end
-		end)
+	State.UI.PollWorldGestureInput = guarded(function()
+		for input in pairs(inputs) do
+			if input.UserInputType == Enum.UserInputType.Touch then changed(input) end
+		end
 	end)
-
-	if touchPanOk and touchPanConnection then
-		Runtime.Track(touchPanConnection)
-	end
-
-	local function handleInputEnded(input)
-		if not finishesInput(input) then
-			return
-		end
-
-		local releasePoint = inputPoint(input)
-		local inputWasCancelled = input.UserInputState == Enum.UserInputState.Cancel
-		if startPoint and (releasePoint - startPoint).Magnitude
-			> (Config.TapSelectMoveThreshold or 14) then
-			moved = true
-		end
-		local duration = os.clock() - startedAt
-		local selectedPlayer = pressedPlayer
-		local shouldSelect = Config.TapSelectPlayer
-			and not inputWasCancelled
-			and not mobileSwitchStarted
-			and not moved
-			and duration <= (Config.TapSelectMaxDuration or 0.46)
-			and releasePoint
-			and not UI.IsPointOverInteractiveUI(releasePoint)
-		local shouldFinishMobile = mobileSwitchStarted
-			and Aim.MobileFriendlyInProgress()
-		local finalMovement = mobileGestureMovement
-			or (
-				releasePoint
-				and startPoint
-				and (releasePoint - startPoint)
-			)
-		if shouldFinishMobile then
-			if inputWasCancelled then
-				Aim.CancelMobileFriendlySwitch(
-					"Troca por gesto: toque cancelado",
-					true
-				)
-			elseif finalMovement then
-				finishMobileGesture(finalMovement.X)
-			else
-				Aim.CancelMobileFriendlySwitch(
-					"Troca por gesto: movimento final indisponível",
-					true
-				)
-			end
-		end
-
-		resetInputState()
-
-		if shouldSelect then
-			local player =
-				selectedPlayer
-				or UI.ResolvePlayerAtScreenPoint(releasePoint)
-
-			if player then
-				UI.SelectExclusivePlayer(
-					player,
-					"Jogador selecionado na tela"
-				)
-			end
-		end
-	end
-
-	Runtime.Track(S.UIS.InputEnded:Connect(handleInputEnded))
-	Runtime.Track(S.UIS.TouchEnded:Connect(handleInputEnded))
 end
 
 local function BuildNavigation()
@@ -16243,6 +15534,19 @@ end
 -- LOOPS
 --==============================================================
 
+function Aim.UpdateTarget()
+	if not Config.AimEnabled or not S.Camera or not Util.LocalCharacterAlive() then
+		Aim.ClearCurrentTarget()
+		return
+	end
+	local candidate = Aim.AcquireTarget()
+	if candidate then
+		TargetSwipe.Assign(candidate)
+	elseif not (Config.StickyTarget and Aim.CurrentTargetGraceValid()) then
+		Aim.ClearCurrentTarget(Config.WallCheck and "Alvo escondido por uma parede" or "Alvo perdido")
+	end
+end
+
 local function StartLoops()
 	task.spawn(function()
 		while Runtime.Alive
@@ -16255,58 +15559,7 @@ local function StartLoops()
 				S.Camera =
 					S.Workspace.CurrentCamera
 
-				if Config.AimEnabled
-					and S.Camera
-					and Util.LocalCharacterAlive() then
-
-					if Aim.MobileFriendlyTimedOut() then
-						Aim.CancelMobileFriendlySwitch(
-							"Troca por gesto: gesto encerrado por segurança",
-							true
-						)
-					end
-
-					if Aim.MobileFriendlyInProgress() then
-						State.Debug.LastReason =
-							"Troca por gesto: escolhendo outro alvo"
-					else
-						local candidate =
-							Aim.AcquireTarget()
-
-						if candidate then
-							State.CurrentTarget =
-								candidate.Player
-
-							State.CurrentPart =
-								candidate.Part
-
-							State.CurrentRegion =
-								candidate.Region
-
-							State.CurrentLocalOffset =
-								candidate.LocalOffset
-
-							State.LastTargetSeen =
-								os.clock()
-
-							if candidate.Visible == true then
-								State.LastTargetVisible = os.clock()
-							end
-						elseif Config.StickyTarget
-							and Aim.CurrentTargetGraceValid() then
-
-							-- Keep briefly only while target remains visible.
-						else
-							Aim.ClearCurrentTarget(
-								Config.WallCheck
-								and "Alvo escondido por uma parede"
-								or "Alvo perdido"
-							)
-						end
-					end
-				else
-					Aim.ClearCurrentTarget()
-				end
+				Aim.UpdateTarget()
 			end)
 
 			if not iterationOk then
@@ -16647,15 +15900,10 @@ local function StartRender()
 					return
 				end
 
-				if Aim.MobileFriendlyInProgress() then
-					State.UI.Status.Text =
-						"Trocando para outro alvo"
-					State.UI.StatusMini.Text = "TROCA"
-					State.UI.StatusMini.TextColor3 = Theme.Accent2
-					UI.SetFOVStateColor(Theme.Accent2)
-					State.UI.DebugLine.Visible = false
-					return
+				if State.UI.PollWorldGestureInput then
+					State.UI.PollWorldGestureInput()
 				end
+				local swipeRetained, swipeVisible = TargetSwipe.RefreshCurrent()
 
 				local currentRecord =
 					State.CurrentTarget
@@ -16673,15 +15921,16 @@ local function StartRender()
 
 					if Config.WallCheck
 						and Config.RenderWallValidation
-						and not Aim.CurrentPointVisible() then
+						and (swipeVisible == false
+							or (swipeVisible == nil and not Aim.CurrentPointVisible())) then
 
 						local mobileKeepsTarget =
-							Aim.MobileFriendlyRetainsCurrentTarget()
+							swipeRetained
 
 						if mobileKeepsTarget
-							and Aim.MobileFriendlyTransitionActive() then
+							and (State.Swipe.Transition ~= nil) then
 
-							Aim.ResetMobileFriendlyTransition()
+							TargetSwipe.CancelTransition()
 						end
 
 						if not mobileKeepsTarget then
@@ -16760,12 +16009,12 @@ local function StartRender()
 
 				else
 					local mobileKeepsTarget =
-						Aim.MobileFriendlyRetainsCurrentTarget()
+						swipeRetained
 
 					if mobileKeepsTarget
-						and Aim.MobileFriendlyTransitionActive() then
+						and (State.Swipe.Transition ~= nil) then
 
-						Aim.ResetMobileFriendlyTransition()
+						TargetSwipe.CancelTransition()
 					end
 
 					if State.CurrentTarget and not mobileKeepsTarget then
@@ -16816,6 +16065,8 @@ function Runtime.Cleanup()
 
 	Runtime.Cleaned = true
 	Runtime.Alive = false
+	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(false) end
+	UI.CloseHelpDialog()
 	Runtime.ActiveRenderPriority = nil
 	UI.ActiveSlider = nil
 	UI.ActiveSliderInput = nil
@@ -16837,7 +16088,7 @@ function Runtime.Cleanup()
 		pcall(ESP.Clear, record)
 	end
 
-	Aim.CancelMobileFriendlySwitch("Script finalizado")
+	TargetSwipe.Cancel("Script finalizado")
 	Aim.ClearCurrentTarget("Script finalizado")
 	State.Records = {}
 	State.SelectedPlayers = {}
@@ -16981,4 +16232,4 @@ ESP.RefreshAll()
 StartLoops()
 StartRender()
 
-print("[Aim Assist Pro V33.19.0] carregado")
+print("[Aim Assist Pro V34.1.0 - Ajuste numérico e ajuda] carregado")
