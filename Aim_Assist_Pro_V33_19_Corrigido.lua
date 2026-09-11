@@ -1,4 +1,4 @@
--- V34.2.0 — jogadores, seletores e estado da mira reorganizados.
+-- V34.3.0 — configurações reconstruídas com início, busca e grupos por assunto.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -11744,158 +11744,390 @@ function Pages.BuildBody()
 	return page
 end
 
-function Pages.BuildEngine()
-	local page = UI.CreatePage("Engine")
-	local controls = {}
-	local settingsCategories = {}
-	local settingsCategoryButtons = {}
-	local activeSettingsCategory = "MENU"
+function UI.SettingsSearchKey(value)
+	local text = string.lower(tostring(value or ""))
+	local accents = { ["á"] = "a", ["à"] = "a", ["ã"] = "a", ["â"] = "a", ["Á"] = "a", ["À"] = "a", ["Ã"] = "a", ["Â"] = "a",
+		["é"] = "e", ["ê"] = "e", ["É"] = "e", ["Ê"] = "e", ["í"] = "i", ["Í"] = "i", ["ó"] = "o", ["ô"] = "o", ["õ"] = "o",
+		["Ó"] = "o", ["Ô"] = "o", ["Õ"] = "o", ["ú"] = "u", ["ü"] = "u", ["Ú"] = "u", ["Ü"] = "u", ["ç"] = "c", ["Ç"] = "c" }
+	return (text:gsub("[\194-\244][\128-\191]*", accents))
+end
 
-	local settingsIntro = UI.Section(
-		page,
-		"AJUSTES DO MENU",
-		"Mude a aparência, os controles no celular, a ordem das opções e suas configurações salvas."
-	)
-	settingsIntro.LayoutOrder = -200
+function UI.SettingsText(parent, text, position, size, fontSize, color, bold)
+	return Util.New("TextLabel", {
+		Position = position, Size = size, BackgroundTransparency = 1, Text = text,
+		TextColor3 = color or Theme.Text, Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham,
+		TextSize = fontSize or 9, TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, parent)
+end
 
-	local categoryBar = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 44),
-		BackgroundColor3 = Theme.Surface2,
-		BackgroundTransparency = 0.24,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		LayoutOrder = -100,
-	}, page)
-	Util.Corner(categoryBar, 14)
-	Util.Stroke(categoryBar, Theme.BorderInner, 0.64, 1)
-	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 5),
-		PaddingRight = UDim.new(0, 5),
-		PaddingTop = UDim.new(0, 5),
-		PaddingBottom = UDim.new(0, 5),
-	}, categoryBar)
-	Util.New("UIGridLayout", {
-		CellSize = UDim2.new(0.25, -4, 1, 0),
-		CellPadding = UDim2.fromOffset(5, 0),
-		FillDirectionMaxCells = 4,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, categoryBar)
-
-	local categoryDefinitions = {
-		{Key = "MENU", Label = "VISUAL"},
-		{Key = "MOBILE", Label = "CELULAR"},
-		{Key = "ORDER", Label = "ORDEM"},
-		{Key = "FILES", Label = "SALVOS"},
-	}
-
-	for index, definition in ipairs(categoryDefinitions) do
-		local button = Util.New("TextButton", {
-			BackgroundColor3 = Theme.Card,
-			BackgroundTransparency = 0.18,
+function UI.SettingsGlyph(parent, kind, size)
+	local box = Util.New("Frame", {
+		Size = UDim2.fromOffset(size, size), BackgroundColor3 = Theme.AccentSoft,
+		BackgroundTransparency = 0.35, BorderSizePixel = 0,
+	}, parent)
+	Util.Corner(box, 10)
+	local function part(x, y, w, h, color, hollow)
+		local shape = Util.New("Frame", {
+			Position = UDim2.fromScale(x, y), Size = UDim2.fromScale(w, h),
+			BackgroundColor3 = color or Theme.Accent2, BackgroundTransparency = hollow and 1 or 0,
 			BorderSizePixel = 0,
-			Text = definition.Label,
-			TextColor3 = Theme.Sub,
-			Font = Enum.Font.GothamBold,
-			TextSize = 7,
-			AutoButtonColor = false,
-			LayoutOrder = index,
-		}, categoryBar)
-		Util.Corner(button, 999)
-		local stroke = Util.Stroke(button, Theme.BorderSoft, 0.70, 1)
-		local indicator = Util.New("Frame", {
-			AnchorPoint = Vector2.new(0.5, 1),
-			Position = UDim2.new(0.5, 0, 1, -2),
-			Size = UDim2.new(0.42, 0, 0, 2),
-			BackgroundColor3 = Theme.Accent,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-		}, button)
-		Util.Corner(indicator, 999)
-		UI.TouchFeedback(button)
-		settingsCategoryButtons[definition.Key] = {
-			Button = button,
-			Stroke = stroke,
-			Indicator = indicator,
-		}
+		}, box)
+		Util.Corner(shape, 999)
+		if hollow then Util.Stroke(shape, Theme.Accent2, 0.12, 1) end
 	end
+	if kind == "MENU" then
+		part(.25,.25,.18,.18); part(.57,.25,.18,.18); part(.25,.57,.18,.18); part(.57,.57,.18,.18)
+	elseif kind == "MOBILE" then
+		part(.33,.18,.34,.64,nil,true); part(.43,.69,.14,.04)
+	elseif kind == "ORDER" then
+		part(.25,.29,.5,.07); part(.25,.47,.36,.07); part(.25,.65,.44,.07)
+	else
+		part(.23,.27,.54,.47,nil,true); part(.37,.36,.26,.06); part(.37,.5,.26,.06)
+	end
+	return box
+end
 
-	local function createSettingsCategory(key, order)
+function UI.SettingsGroup(parent, title, subtitle, id)
+	local order = (parent:GetAttribute("AAPSettingsGroupCount") or 0) + 1
+	parent:SetAttribute("AAPSettingsGroupCount", order)
+	local shell = Util.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = order * 10,
+	}, parent)
+	Util.New("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, shell)
+	local header = Util.New("Frame", {
+		Size = UDim2.new(1, 0, 0, subtitle and 40 or 24), BackgroundTransparency = 1, LayoutOrder = -10,
+	}, shell)
+	UI.SettingsText(header, title, UDim2.fromOffset(2, 1), UDim2.new(1, -4, 0, 18), 10, Theme.Text, true)
+	if subtitle then
+		UI.SettingsText(header, subtitle, UDim2.fromOffset(2, 22), UDim2.new(1, -4, 0, 15), 8, Theme.Sub)
+	end
+	local content = Util.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, BorderSizePixel = 0,
+	}, shell)
+	Util.New("UIListLayout", {Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder}, content)
+	if id then UI.RegisterOrganizerContainer(content, id) end
+	return content, shell
+end
+
+function UI.StyleSettingsControl(control)
+	local card = control.Card
+	local cycle = typeof(control.Value) == "Instance"
+	local baseHeight = cycle and 104 or control.Switch and 82 or 104
+	local slot = control.Record and control.Record.Card or card
+	for _, entry in ipairs(UI.ScalableControls) do
+		if entry.Card == slot then entry.BaseHeight = baseHeight; break end
+	end
+	slot.Size = UDim2.new(slot.Size.X.Scale, slot.Size.X.Offset, 0, math.floor(baseHeight * Config.ControlScale + .5))
+	if control.Record then control.Record.OriginalSize = slot.Size end
+	card.BackgroundTransparency = 0.12
+	if control.Title then
+		control.Title.Font = Enum.Font.GothamMedium
+	end
+	if cycle then
+		control.Title.Size = UDim2.new(1, control.Help and -54 or -28, 0, 18)
+		control.Title.Position = UDim2.fromOffset(14, 8)
+		Util.FitText(control.Title, 8, 11)
+		control.Description.Position = UDim2.fromOffset(14, 30)
+		control.Description.Size = UDim2.new(1, -28, 0, 18)
+		control.Value.AnchorPoint = Vector2.new(0, 1)
+		control.Value.Position = UDim2.new(0, 14, 1, -8)
+		control.Value.Size = UDim2.new(1, -28, 0, 26)
+		control.Value.BackgroundColor3 = Theme.Surface3
+		control.Value.TextColor3 = Theme.Accent2
+		Util.FitText(control.Value, 8, 10)
+		if control.Help then control.Help.Position = UDim2.new(1, -10, 0, 3) end
+	else
+		control.Description.Size = UDim2.new(1, -28, 0, control.Switch and 25 or 18)
+	end
+end
+
+function UI.CreateSettingsWorkspace(page)
+	local view = {Page = page, Categories = {}, Tiles = {}, Entries = {}, Scroll = {}, Active = "HOME", Display = "HOME", Generation = 0, LastSearchText = ""}
+	page:SetAttribute("AAPHideScrollCue", true)
+	page.Position = UDim2.fromOffset(3, 77)
+	page.Size = UDim2.new(1, -6, 1, -80)
+	page.ScrollBarThickness = 3
+	local toolbar = Util.New("Frame", {
+		Name = "AAP_SettingsToolbar", Position = UDim2.fromOffset(7, 4),
+		Size = UDim2.new(1, -22, 0, 66), BackgroundTransparency = 1,
+		Visible = page.Visible,
+	}, page.Parent)
+	view.Toolbar = toolbar
+	view.Back = Util.New("TextButton", {
+		Size = UDim2.fromOffset(66, 27), BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .25,
+		BorderSizePixel = 0, Text = "‹  Início", TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium,
+		TextSize = 9, AutoButtonColor = false, Visible = false,
+	}, toolbar)
+	Util.Corner(view.Back, 10)
+	UI.TouchFeedback(view.Back)
+	view.Title = UI.SettingsText(toolbar, "Configurações", UDim2.fromOffset(2, 2), UDim2.new(1, -4, 0, 24), 13, Theme.Text, true)
+	Util.FitText(view.Title, 10, 14)
+	local searchBox = Util.New("Frame", {
+		Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .3, BorderSizePixel = 0,
+	}, toolbar)
+	Util.Corner(searchBox, 10)
+	Util.Stroke(searchBox, Theme.BorderSoft, .65, 1)
+	view.Search = Util.New("TextBox", {
+		Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -46, 1, 0), BackgroundTransparency = 1,
+		Text = "", PlaceholderText = "Buscar ajuste...", PlaceholderColor3 = Theme.Sub,
+		TextColor3 = Theme.Text, Font = Enum.Font.Gotham, TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, MultiLine = false,
+	}, searchBox)
+	view.Clear = Util.New("TextButton", {
+		Position = UDim2.new(1, -32, 0, 0), Size = UDim2.fromOffset(32, 30), BackgroundTransparency = 1,
+		Text = "×", TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 14,
+		Visible = false, AutoButtonColor = false,
+	}, searchBox)
+	local definitions = {
+		{Key = "MENU", Label = "Aparência", Detail = "Cores, formato e tamanho"},
+		{Key = "MOBILE", Label = "Celular", Detail = "Atalhos e troca por gesto"},
+		{Key = "ORDER", Label = "Organização", Detail = "Ordem das opções e testes"},
+		{Key = "FILES", Label = "Salvos", Detail = "Guardar e carregar ajustes"},
+	}
+	view.Definitions = definitions
+	function view:AddCategory(key)
 		local holder = Util.New("Frame", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Visible = false,
-			LayoutOrder = 100 + order,
+			Name = "AAP_Settings_" .. key, Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false,
 		}, page)
-		Util.New("UIListLayout", {
-			Padding = UDim.new(0, 8),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}, holder)
-		settingsCategories[key] = holder
+		Util.New("UIListLayout", {Padding = UDim.new(0, 16), SortOrder = Enum.SortOrder.LayoutOrder}, holder)
+		self.Categories[key] = holder
 		return holder
 	end
-
-	local menuCategory = createSettingsCategory("MENU", 1)
-	local mobileCategory = createSettingsCategory("MOBILE", 2)
-	local orderCategory = createSettingsCategory("ORDER", 3)
-	local filesCategory = createSettingsCategory("FILES", 4)
-	local aimCategory = State.UI.AimAdvancedContainer
-	if not aimCategory then
-		aimCategory = Util.New("Frame", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1,
-			Visible = false,
-		}, page)
-		Util.New("UIListLayout", {
-			Padding = UDim.new(0, 8),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}, aimCategory)
+	local home = view:AddCategory("HOME")
+	for _, definition in ipairs(definitions) do view:AddCategory(definition.Key) end
+	local summary = Util.New("Frame", {
+		Name = "AAP_SettingsSummary", Size = UDim2.new(1, 0, 0, 88),
+		BackgroundColor3 = Theme.CardActive, BackgroundTransparency = .13, BorderSizePixel = 0, LayoutOrder = -10,
+	}, home)
+	Util.Corner(summary, 14)
+	Util.Stroke(summary, Theme.AccentSoft, .45, 1)
+	UI.SettingsText(summary, "SEU MENU", UDim2.fromOffset(14, 11), UDim2.new(1, -145, 0, 13), 8, Theme.Accent2, true)
+	view.SummaryTitle = UI.SettingsText(summary, "", UDim2.fromOffset(14, 31), UDim2.new(1, -145, 0, 18), 11, Theme.Text, true)
+	Util.FitText(view.SummaryTitle, 8, 12)
+	view.SummaryDetail = UI.SettingsText(summary, "", UDim2.fromOffset(14, 57), UDim2.new(1, -145, 0, 16), 8, Theme.Sub)
+	local preview = Util.New("Frame", {
+		Position = UDim2.new(1, -118, 0, 14), Size = UDim2.fromOffset(104, 60),
+		BackgroundColor3 = Theme.Surface2, BorderSizePixel = 0,
+	}, summary)
+	Util.Corner(preview, 10)
+	Util.Stroke(preview, Theme.BorderSoft, .3, 1)
+	view.PreviewParts = {}
+	for i = 1, 4 do
+		local tab = Util.New("Frame", {
+			Position = UDim2.fromOffset(8 + (i - 1) * 23, 9), Size = UDim2.fromOffset(18, 5),
+			BackgroundColor3 = i == 1 and Theme.Accent or Theme.Muted, BackgroundTransparency = i == 1 and 0 or .5,
+			BorderSizePixel = 0,
+		}, preview)
+		Util.Corner(tab, 999)
+		if i == 1 then view.PreviewParts.Tab = tab end
 	end
-
-	local function refreshSettingsCategoryButtons()
-		for key, entry in pairs(settingsCategoryButtons) do
-			local selected = key == activeSettingsCategory
-			entry.Button.BackgroundColor3 = selected
-				and Theme.CardActive
-				or Theme.Card
-			entry.Button.BackgroundTransparency = selected and 0.02 or 0.18
-			entry.Button.TextColor3 = selected and Theme.Accent2 or Theme.Sub
-			entry.Stroke.Color = selected and Theme.Accent or Theme.BorderSoft
-			entry.Stroke.Transparency = selected and 0.16 or 0.70
-			entry.Indicator.BackgroundTransparency = selected and 0.04 or 1
-		end
+	for i = 1, 2 do
+		local row = Util.New("Frame", {
+			Position = UDim2.fromOffset(8, 23 + (i - 1) * 15), Size = UDim2.fromOffset(88, 10),
+			BackgroundColor3 = Theme.Surface3, BorderSizePixel = 0,
+		}, preview)
+		Util.Corner(row, 999)
+		local knob = Util.New("Frame", {
+			Position = UDim2.fromOffset(72, 3), Size = UDim2.fromOffset(10, 4),
+			BackgroundColor3 = Theme.Accent2, BorderSizePixel = 0,
+		}, row)
+		Util.Corner(knob, 999)
+		view.PreviewParts[i] = knob
 	end
-
-	local function showSettingsCategory(key, resetScroll)
-		if not settingsCategories[key] then
-			key = "MENU"
-		end
-		activeSettingsCategory = key
-		for categoryKey, holder in pairs(settingsCategories) do
-			holder.Visible = categoryKey == key
-		end
-		refreshSettingsCategoryButtons()
-
-		if resetScroll ~= false then
-			page.CanvasPosition = Vector2.zero
-		end
+	local tiles = Util.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 216), BackgroundTransparency = 1, BorderSizePixel = 0,
+	}, home)
+	view.TileHolder = tiles
+	for _, definition in ipairs(definitions) do
+		local card = Util.New("TextButton", {
+			BackgroundColor3 = Theme.Card, BackgroundTransparency = .08, BorderSizePixel = 0,
+			Text = "", AutoButtonColor = false,
+		}, tiles)
+		Util.Corner(card, 12)
+		Util.Stroke(card, Theme.BorderSoft, .64, 1)
+		local glyph = UI.SettingsGlyph(card, definition.Key, 28)
+		glyph.Position = UDim2.fromOffset(12, 12)
+		local title = UI.SettingsText(card, definition.Label, UDim2.fromOffset(49, 15), UDim2.new(1, -61, 0, 18), 10, Theme.Text, true)
+		Util.FitText(title, 8, 11)
+		UI.SettingsText(card, definition.Detail, UDim2.fromOffset(12, 50), UDim2.new(1, -24, 0, 16), 8, Theme.Sub)
+		local state = UI.SettingsText(card, "", UDim2.fromOffset(12, 77), UDim2.new(1, -40, 0, 14), 8, Theme.Accent2)
+		UI.SettingsText(card, "›", UDim2.new(1, -24, 0, 74), UDim2.fromOffset(16, 18), 14, Theme.Sub)
+		view.Tiles[definition.Key] = {Card = card, State = state}
+		UI.TouchFeedback(card)
+		card.Activated:Connect(function() view.Show(definition.Key, false) end)
+	end
+	local results = view:AddCategory("SEARCH")
+	view.Results = results
+	view.NoResults = UI.SettingsText(results, "Nenhum ajuste encontrado. Tente outro nome.", UDim2.new(), UDim2.new(1, 0, 0, 52), 9, Theme.Sub)
+	view.NoResults.TextWrapped = true
+	view.NoResults.Visible = false
+	local function rememberScroll()
+		view.Scroll[view.Display] = page.CanvasPosition.Y
+	end
+	local function showOnly(key)
+		for categoryKey, holder in pairs(view.Categories) do holder.Visible = categoryKey == key end
+		view.Display = key
+		view.Back.Visible = key ~= "HOME"
+		view.Title.Position = UDim2.fromOffset(key == "HOME" and 2 or 76, 2)
+		view.Title.Size = UDim2.new(1, key == "HOME" and -4 or -78, 0, 24)
+		view.Title.Text = key == "HOME" and "Configurações" or key == "SEARCH" and "Resultados" or ""
+		for _, definition in ipairs(definitions) do if definition.Key == key then view.Title.Text = definition.Label end end
+	end
+	function view.Show(key, resetScroll)
+		if not Runtime.Alive or not page.Parent then return end
+		if not view.Categories[key] or key == "SEARCH" then key = "HOME" end
+		rememberScroll()
+		view.Generation += 1
+		view.LastSearchText = ""
+		view.IgnoreSearch = true; view.Search.Text = ""; view.IgnoreSearch = false
+		view.Clear.Visible = false
+		view.Search:ReleaseFocus(false)
+		view.Active = key
+		showOnly(key)
+		if resetScroll then view.Scroll[key] = 0 end
+		local generation = view.Generation
 		task.defer(function()
-			if page.Parent then
-				UI.RefreshPageScrollCue(page)
+			S.RunService.Heartbeat:Wait()
+			if Runtime.Alive and page.Parent and generation == view.Generation then
+				page.CanvasPosition = Vector2.new(0, view.Scroll[key] or 0)
 			end
 		end)
 	end
-
-	for key, entry in pairs(settingsCategoryButtons) do
-		local categoryKey = key
-		entry.Button.MouseButton1Click:Connect(function()
-			showSettingsCategory(categoryKey, true)
+	function view:Reveal(entry)
+		if entry.Open then entry.Open() end
+		local target = entry.Control.Record and entry.Control.Record.Card or entry.Control.Card
+		local destination = UI.GetPageForObject(target)
+		if destination and destination ~= page then
+			UI.ShowPage(destination)
+		else
+			destination = page
+			local categoryKey = entry.Category
+			local ancestor = target
+			while ancestor and ancestor ~= page do
+				for key, holder in pairs(self.Categories) do if holder == ancestor then categoryKey = key end end
+				ancestor = ancestor.Parent
+			end
+			self.Show(categoryKey, false)
+		end
+		self.Generation += 1
+		local generation = self.Generation
+		task.defer(function()
+			task.defer(function()
+				S.RunService.Heartbeat:Wait()
+				if not Runtime.Alive or generation ~= self.Generation or not target.Parent or not destination.Parent then return end
+				local offset = target.AbsolutePosition.Y - destination.AbsolutePosition.Y + destination.CanvasPosition.Y - 8
+				destination.CanvasPosition = Vector2.new(0, math.max(offset, 0))
+				local outline = Util.New("Frame", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 32}, entry.Control.Card)
+				Util.Corner(outline, 12)
+				Util.Stroke(outline, Theme.Accent2, .1, 2)
+				task.delay(1.2, function() if outline.Parent then outline:Destroy() end end)
+			end)
 		end)
 	end
+	function view:AddSetting(category, control, words, open, title)
+		local label = title or control.Title and control.Title.Text or "Ajuste"
+		local entry = {Category = category, Control = control, Title = label, Open = open,
+			SearchText = UI.SettingsSearchKey(label .. " " .. (words or "") .. " " .. (control.OriginalDescription or ""))}
+		local row = Util.New("TextButton", {
+			Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = Theme.Card, BackgroundTransparency = .10,
+			BorderSizePixel = 0, Text = "", AutoButtonColor = false, Visible = false, LayoutOrder = #self.Entries + 1,
+		}, results)
+		Util.Corner(row, 12)
+		Util.Stroke(row, Theme.BorderSoft, .75, 1)
+		UI.SettingsText(row, label, UDim2.fromOffset(12, 10), UDim2.new(1, -46, 0, 18), 10, Theme.Text, true)
+		local categoryLabel = category
+		for _, d in ipairs(definitions) do if d.Key == category then categoryLabel = d.Label end end
+		UI.SettingsText(row, categoryLabel, UDim2.fromOffset(12, 35), UDim2.new(1, -46, 0, 15), 8, Theme.Sub)
+		UI.SettingsText(row, "›", UDim2.new(1, -26, 0, 20), UDim2.fromOffset(18, 20), 15, Theme.Accent2)
+		UI.TouchFeedback(row)
+		row.Activated:Connect(function() self:Reveal(entry) end)
+		entry.Result = row
+		self.Entries[#self.Entries + 1] = entry
+	end
+	function view.RefreshSearch()
+		local query = UI.SettingsSearchKey(view.Search.Text):match("^%s*(.-)%s*$")
+		view.Clear.Visible = query ~= ""
+		if query == "" then view.Show(view.Active, false); return end
+		if view.Display ~= "SEARCH" then rememberScroll() end
+		showOnly("SEARCH")
+		local count = 0
+		for _, entry in ipairs(view.Entries) do
+			local slot = entry.Control.Record and entry.Control.Record.Card or entry.Control.Card
+			local matches = slot.Parent ~= nil and slot.Visible
+			for word in query:gmatch("%S+") do if not string.find(entry.SearchText, word, 1, true) then matches = false; break end end
+			entry.Result.Visible = matches
+			if matches then count += 1 end
+		end
+		view.NoResults.Visible = count == 0
+		view.ResultCount = count
+		page.CanvasPosition = Vector2.zero
+	end
+	view.Search:GetPropertyChangedSignal("Text"):Connect(function()
+		if view.IgnoreSearch or view.Search.Text == view.LastSearchText then return end
+		view.LastSearchText = view.Search.Text
+		view.Generation += 1
+		local generation = view.Generation
+		task.delay(.08, function()
+			if Runtime.Alive and page.Parent and generation == view.Generation then view.RefreshSearch() end
+		end)
+	end)
+	view.Clear.Activated:Connect(function() view.Show(view.Active, false) end)
+	view.Back.Activated:Connect(function() view.Show("HOME", false) end)
+	page:GetPropertyChangedSignal("Visible"):Connect(function()
+		toolbar.Visible = page.Visible
+		if not page.Visible then view.Search:ReleaseFocus(false) end
+	end)
+	local function layoutTiles()
+		local columns = tiles.AbsoluteSize.X >= 350 and 2 or 1
+		for index, definition in ipairs(definitions) do
+			local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
+			local card = view.Tiles[definition.Key].Card
+			card.Position = UDim2.new(column / columns, column == 0 and 0 or 4, 0, row * 112)
+			card.Size = UDim2.new(1 / columns, columns == 1 and 0 or -4, 0, 104)
+		end
+		tiles.Size = UDim2.new(1, 0, 0, math.ceil(#definitions / columns) * 112 - 8)
+		local compact = summary.AbsoluteSize.X < 300
+		preview.Visible = not compact
+		view.SummaryTitle.Size = UDim2.new(1, compact and -28 or -145, 0, 18)
+		view.SummaryDetail.Size = UDim2.new(1, compact and -28 or -145, 0, 16)
+	end
+	tiles:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutTiles)
+	layoutTiles()
+	function view.Refresh()
+		local theme = ThemePresets[Config.UITheme] or ThemePresets.RED
+		view.SummaryTitle.Text = theme.Label
+		view.SummaryDetail.Text = tostring(math.floor(Config.MenuScale * 100 + .5)) .. "% · " .. ((MENU_LAYOUT_PRESETS[Config.MenuLayoutStyle] or MENU_LAYOUT_PRESETS.BALANCED).Label)
+		view.Tiles.MENU.State.Text = theme.Label
+		view.Tiles.MOBILE.State.Text = Config.MobileFriendlySwitch and "Troca por gesto ativada" or "Troca por gesto desativada"
+		view.Tiles.ORDER.State.Text = State.UI.LayoutEditMode and "Editando a ordem" or "Arraste para organizar"
+		view.Tiles.FILES.State.Text = tostring(view.SavedCount or 0) .. " configurações"
+	end
+	State.UI.SettingsWorkspace = view
+	State.UI.ShowSettingsCategory = view.Show
+	return view
+end
 
-	State.UI.ShowSettingsCategory = showSettingsCategory
+function Pages.BuildEngine()
+	local page = UI.CreatePage("Engine")
+	local controls = {}
+	local view = UI.CreateSettingsWorkspace(page)
+	local menuCategory = view.Categories.MENU
+	local mobileCategory = view.Categories.MOBILE
+	local orderCategory = view.Categories.ORDER
+	local filesCategory = view.Categories.FILES
+	local refreshSettingsCategoryButtons = view.Refresh
+	local showSettingsCategory = view.Show
+	local aimCategory = State.UI.AimAdvancedContainer
+	if not aimCategory then
+		aimCategory = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1, Visible = false}, page)
+		Util.New("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder}, aimCategory)
+	end
 
 	UI.Section(
 		aimCategory,
@@ -11959,13 +12191,7 @@ function Pages.BuildEngine()
 			}
 		)
 
-	UI.Section(
-		mobileCategory,
-		"CONTROLES NA TELA",
-		"Ajustes feitos para jogar pelo celular."
-	)
-
-	local mobileSupport = UI.Stack(mobileCategory)
+	local mobileSupport = UI.SettingsGroup(mobileCategory, "Atalhos na tela", "Acesso à mira mesmo com o menu fechado.", "Engine:Stack1")
 
 	controls.MobileQuick =
 		UI.CreateToggle(
@@ -11981,9 +12207,10 @@ function Pages.BuildEngine()
 			"Evita mover os botões sem querer."
 		)
 
+	local swipeSupport, swipeShell = UI.SettingsGroup(mobileCategory, "Troca de alvo por gesto", "Escolha outro jogador com um deslize.", "Engine:Gestures")
 	controls.MobileFriendly =
 		UI.CreateToggle(
-			mobileSupport,
+			swipeSupport,
 			"Troca de alvo por gesto",
 			"Deslize na direção do próximo jogador.",
 			{
@@ -11996,7 +12223,7 @@ function Pages.BuildEngine()
 		controls.MobileFriendly.Record.Card.Visible = mobileFriendlyVisible
 	end
 
-	controls.SwipeDistance = UI.CreateSlider(mobileSupport,
+	controls.SwipeDistance = UI.CreateSlider(swipeSupport,
 		"Movimento para trocar", 18, 180, Config.MobileFriendlyMoveThreshold, " px",
 		function(value)
 			if not TargetSwipe.IsEnabled() then
@@ -12009,7 +12236,7 @@ function Pages.BuildEngine()
 			TargetSwipe.Cancel("Movimento do gesto alterado")
 		end,
 		{Id = "mobile.swipe.distance", Description = "Maior precisa de um deslize mais longo."})
-	controls.SwipeInvert = UI.CreateToggle(mobileSupport, "Inverter gesto",
+	controls.SwipeInvert = UI.CreateToggle(swipeSupport, "Inverter gesto",
 		"Troca o sentido: puxar para a direita escolhe um alvo à esquerda.",
 		{Id = "mobile.swipe.invert"})
 	controls.SwipeInvert.Card.MouseButton1Click:Connect(function()
@@ -12023,13 +12250,10 @@ function Pages.BuildEngine()
 		if control.Record then control.Record.Card.Visible = mobileFriendlyVisible end
 	end
 
-	UI.Section(
-		menuCategory,
-		"APARÊNCIA DO MENU",
-		"Ajuste o tamanho, o formato e a cor da interface."
-	)
+	swipeShell.Visible = mobileFriendlyVisible
 
-	local interfaceStack = UI.Stack(menuCategory)
+	local appearanceStack = UI.SettingsGroup(menuCategory, "Cor e formato", "Escolha como o menu aparece na tela.", "Engine:Appearance")
+	local interfaceStack = UI.SettingsGroup(menuCategory, "Tamanho e leitura", "Ajuste o painel e o espaço dos controles.", "Engine:Stack2")
 
 	controls.MenuSizeMode = UI.CreateCycle(
 		interfaceStack,
@@ -12077,24 +12301,26 @@ function Pages.BuildEngine()
 		end
 	)
 
-	controls.LayoutStyle = UI.CreateCycle(
-		interfaceStack,
-		"Formato do menu",
-		"Escolhe quanto espaço vai para o menu e para a lista de jogadores."
-	)
-
 	controls.Theme = UI.CreateCycle(
-		interfaceStack,
+		appearanceStack,
 		"Cor do menu",
 		"Troca a cor dos destaques, das seleções e do ESP."
 	)
 
-	local diagnosticContent = UI.CreateExpandableGroup(
-		menuCategory,
-		"DIAGNÓSTICO",
-		"Abra somente quando precisar testar algum problema.",
+	controls.LayoutStyle = UI.CreateCycle(
+		appearanceStack,
+		"Formato do menu",
+		"Escolhe quanto espaço vai para o menu e para a lista de jogadores."
+	)
+
+	UI.OrganizerContainerCounts[page] = 2
+	local diagnosticContent, diagnosticGroup = UI.CreateExpandableGroup(
+		orderCategory,
+		"Informações de teste",
+		"Detalhes para investigar um problema na mira.",
 		false
 	)
+	diagnosticGroup.Shell.LayoutOrder = 20
 	controls.Debug = UI.CreateToggle(
 		diagnosticContent,
 		"Mostrar informações de teste",
@@ -12132,13 +12358,9 @@ function Pages.BuildEngine()
 		"CLEAN",
 	}
 
-	UI.Section(
-		orderCategory,
-		"ORGANIZAÇÃO",
-		"Mude a ordem das opções ou leve uma delas para outra aba."
-	)
+	local organizerStack, organizerShell = UI.SettingsGroup(orderCategory, "Organize do seu jeito", "Ative a edição e arraste pelas alças.", "Engine:Stack4")
+	organizerShell.LayoutOrder = 1
 
-	local organizerStack = UI.Stack(orderCategory)
 	controls.LayoutEditor = UI.CreateToggle(
 		organizerStack,
 		"Editar ordem das opções",
@@ -12156,310 +12378,195 @@ function Pages.BuildEngine()
 	)
 	controls.ResetControlLayout.Value.Text = "RESTAURAR"
 
-	UI.Section(
-		filesCategory,
-		"CONFIGURAÇÕES SALVAS",
-		"Salve seus ajustes para usar novamente depois."
-	)
-
+	local saveGroup = UI.SettingsGroup(filesCategory, "Salvar seus ajustes", "Guarde uma configuração para usar depois.")
 	local configPanel = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 318),
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-	}, filesCategory)
-	Util.Corner(configPanel, 15)
-	Util.GlassGradient(
-		configPanel,
-		Theme.GlassRaised,
-		Theme.Glass,
-		0.04,
-		0.01,
-		90
-	)
-	Util.Stroke(configPanel, Theme.BorderInner, 0.58, 1)
-	Util.InnerHighlight(configPanel, 13, 0.90)
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(12, 11),
-		Size = UDim2.new(1, -24, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "NOME DA CONFIGURAÇÃO",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, configPanel)
-
+		Name = "AAP_SaveConfiguration", Size = UDim2.new(1, 0, 0, 94),
+		BackgroundColor3 = Theme.Card, BackgroundTransparency = .10, BorderSizePixel = 0,
+	}, saveGroup)
+	Util.Corner(configPanel, 12)
+	Util.Stroke(configPanel, Theme.BorderSoft, .6, 1)
+	UI.SettingsText(configPanel, "Nome da configuração", UDim2.fromOffset(12, 10), UDim2.new(1, -24, 0, 18), 9, Theme.Text, true)
 	controls.ConfigName = Util.New("TextBox", {
-		Position = UDim2.fromOffset(12, 33),
-		Size = UDim2.new(0.62, -18, 0, 38),
-		BackgroundColor3 = Theme.Card,
-		BackgroundTransparency = 0.04,
-		BorderSizePixel = 0,
-		PlaceholderText = "Ex.: Sniper principal",
-		PlaceholderColor3 = Theme.Dim,
-		Text = "",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ClearTextOnFocus = false,
+		Position = UDim2.fromOffset(12, 38), Size = UDim2.new(1, -114, 0, 36),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .1, BorderSizePixel = 0,
+		PlaceholderText = "Ex.: Sniper principal", PlaceholderColor3 = Theme.Sub,
+		Text = "", TextColor3 = Theme.Text, Font = Enum.Font.Gotham, TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, MultiLine = false,
 	}, configPanel)
-	Util.Corner(controls.ConfigName, 11)
-	Util.Stroke(controls.ConfigName, Theme.BorderInner, 0.62, 1)
-	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 10),
-		PaddingRight = UDim.new(0, 10),
-	}, controls.ConfigName)
-
+	Util.Corner(controls.ConfigName, 10)
+	Util.New("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, controls.ConfigName)
 	controls.SaveConfig = Util.New("TextButton", {
-		Position = UDim2.new(0.62, 2, 0, 33),
-		Size = UDim2.new(0.38, -14, 0, 38),
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.02,
-		BorderSizePixel = 0,
-		Text = "SALVAR",
-		TextColor3 = Color3.fromRGB(255, 255, 255),
-		Font = Enum.Font.GothamBlack,
-		TextSize = 9,
-		TextStrokeColor3 = Theme.AccentDeep,
-		TextStrokeTransparency = 0.36,
-		AutoButtonColor = false,
+		Position = UDim2.new(1, -94, 0, 38), Size = UDim2.fromOffset(82, 36),
+		BackgroundColor3 = Theme.AccentSoft, BorderSizePixel = 0, Text = "Salvar",
+		TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false,
 	}, configPanel)
-	Util.Corner(controls.SaveConfig, 999)
-	Util.InnerHighlight(controls.SaveConfig, 11, 0.58)
-	Util.Stroke(controls.SaveConfig, Theme.Accent2, 0.10, 2)
+	Util.Corner(controls.SaveConfig, 10)
+	Util.Stroke(controls.SaveConfig, Theme.Accent, .35, 1)
 	UI.TouchFeedback(controls.SaveConfig)
-
+	local listGroup = UI.SettingsGroup(filesCategory, "Suas configurações", nil)
+	controls.ConfigStatus = UI.SettingsText(listGroup, "", UDim2.new(), UDim2.new(1, 0, 0, 32), 8, Theme.Sub)
+	controls.ConfigStatus.TextWrapped = true
+	controls.ConfigList = Util.New("Frame", {
+		Name = "AAP_SavedConfigurations", Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+	}, listGroup)
+	Util.New("UIListLayout", {Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder}, controls.ConfigList)
+	controls.ConfigEmpty = UI.SettingsText(controls.ConfigList, "Você ainda não salvou nenhuma configuração.", UDim2.new(), UDim2.new(1, 0, 0, 56), 9, Theme.Sub)
+	controls.ConfigEmpty.TextWrapped = true
+	controls.ConfigRows = {}
+	local resetContent, resetGroup = UI.CreateExpandableGroup(filesCategory, "Restaurar configurações", "Volta aos valores iniciais do script.", false)
+	resetGroup.Shell.LayoutOrder = 30
+	controls.ResetGroup = resetGroup
 	controls.ResetConfig = Util.New("TextButton", {
-		Position = UDim2.fromOffset(12, 79),
-		Size = UDim2.new(1, -24, 0, 36),
-		BackgroundColor3 = Theme.Card,
-		BackgroundTransparency = 0.03,
-		BorderSizePixel = 0,
-		Text = "RESTAURAR TUDO",
-		TextColor3 = Theme.Danger,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		AutoButtonColor = false,
-	}, configPanel)
-	Util.Corner(controls.ResetConfig, 999)
-	Util.Stroke(controls.ResetConfig, Theme.Danger, 0.42, 1)
+		Size = UDim2.new(1, 0, 0, 42), BackgroundColor3 = Theme.Card, BackgroundTransparency = .1,
+		BorderSizePixel = 0, Text = "Restaurar tudo", TextColor3 = Theme.Danger,
+		Font = Enum.Font.GothamMedium, TextSize = 9, AutoButtonColor = false,
+	}, resetContent)
+	Util.Corner(controls.ResetConfig, 10)
+	Util.Stroke(controls.ResetConfig, Theme.Danger, .6, 1)
 	UI.TouchFeedback(controls.ResetConfig)
-
-	controls.ConfigStatus = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(12, 122),
-		Size = UDim2.new(1, -24, 0, 18),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, configPanel)
-
-	controls.ConfigList = Util.New("ScrollingFrame", {
-		Position = UDim2.fromOffset(14, 147),
-		Size = UDim2.new(1, -28, 1, -161),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		CanvasSize = UDim2.new(),
-		ScrollBarThickness = 4,
-		ScrollBarImageColor3 = Theme.Accent,
-		ScrollBarImageTransparency = 0.18,
-		ScrollingDirection = Enum.ScrollingDirection.Y,
-		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
-		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
-		ClipsDescendants = true,
-	}, configPanel)
-	local configLayout = Util.New("UIListLayout", {
-		Padding = UDim.new(0, 6),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, controls.ConfigList)
-	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 4),
-		PaddingRight = UDim.new(0, 6),
-		PaddingTop = UDim.new(0, 3),
-		PaddingBottom = UDim.new(0, 5),
-	}, controls.ConfigList)
-	configLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		if controls.ConfigList.Parent then
-			controls.ConfigList.CanvasSize =
-				UDim2.fromOffset(0, configLayout.AbsoluteContentSize.Y + 12)
-		end
-	end)
-
-	function controls.RefreshConfigurations()
-		for _, child in ipairs(controls.ConfigList:GetChildren()) do
-			if child:IsA("GuiObject") then
-				child:Destroy()
-			end
-		end
-
-		local names = Persistence.List()
-		local savedCount = tostring(#names)
-			.. (#names == 1
-				and " configuração salva"
-				or " configurações salvas")
-		controls.ConfigStatus.Text = savedCount
-			.. (Persistence.HasDiskStorage()
-				and " neste dispositivo"
-				or " nesta sessão")
-
-		if #names == 0 then
-			local emptyCard = Util.New("TextLabel", {
-				Size = UDim2.new(1, -10, 0, 42),
-				BackgroundColor3 = Theme.Card,
-				BackgroundTransparency = 0.10,
-				BorderSizePixel = 0,
-				Text = "Você ainda não salvou nenhuma configuração.",
-				TextColor3 = Theme.Dim,
-				Font = Enum.Font.GothamBold,
-				TextSize = 7,
-			}, controls.ConfigList)
-			Util.Corner(emptyCard, 11)
-			Util.Stroke(emptyCard, Theme.BorderInner, 0.74, 1)
-			return
-		end
-
-		for index, name in ipairs(names) do
-			local row = Util.New("TextButton", {
-				Size = UDim2.new(1, -10, 0, 42),
-				BackgroundColor3 = Theme.Card,
-				BackgroundTransparency = 0.04,
-				BorderSizePixel = 0,
-				Text = "",
-				AutoButtonColor = false,
-				LayoutOrder = index,
-				ClipsDescendants = true,
-			}, controls.ConfigList)
-			Util.Corner(row, 11)
-			Util.Sheen(row, 0.08)
-			Util.Stroke(row, Theme.BorderInner, 0.74, 1)
-
-			Util.FitText(Util.New("TextLabel", {
-				Position = UDim2.fromOffset(12, 0),
-				Size = UDim2.new(1, -108, 1, 0),
-				BackgroundTransparency = 1,
-				Text = name,
-				TextColor3 = Theme.Text,
-				Font = Enum.Font.GothamBold,
-				TextSize = 8,
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}, row), 6, 9)
-
-			local loadLabel = Util.New("TextLabel", {
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -50, 0.5, 0),
-				Size = UDim2.fromOffset(48, 24),
-				BackgroundColor3 = Theme.AccentSoft,
-				BorderSizePixel = 0,
-				Text = "CARREGAR",
-				TextColor3 = Theme.Accent2,
-				Font = Enum.Font.GothamBold,
-				TextSize = 6,
-			}, row)
-			Util.Corner(loadLabel, 999)
-
-			local deleteButton = Util.New("TextButton", {
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -6, 0.5, 0),
-				Size = UDim2.fromOffset(34, 24),
-				BackgroundColor3 = Theme.Surface3,
-				BorderSizePixel = 0,
-				Text = "X",
-				TextColor3 = Theme.Danger,
-				Font = Enum.Font.GothamBold,
-				TextSize = 7,
-				AutoButtonColor = false,
-			}, row)
-			Util.Corner(deleteButton, 999)
-			Util.Stroke(deleteButton, Theme.Danger, 0.55, 1)
-			UI.TouchFeedback(row)
-			UI.TouchFeedback(deleteButton)
-
-			row.MouseButton1Click:Connect(function()
-				local ok, result = Persistence.Load(name)
-				if ok then
-					controls.ConfigName.Text = result
-					UI.ApplyConfigurationState(
-						"Configuração carregada: " .. result,
-						false
-					)
-				else
-					UI.Toast(result)
-				end
-			end)
-
-			local deleteArmedUntil = 0
-			deleteButton.MouseButton1Click:Connect(function()
-				if os.clock() > deleteArmedUntil then
-					deleteArmedUntil = os.clock() + 3
-					deleteButton.Text = "?"
-					UI.Toast("Toque de novo no botão para excluir " .. name .. ".")
-					task.delay(3.1, function()
-						if Runtime.Alive and deleteButton.Parent and os.clock() > deleteArmedUntil then
-							deleteButton.Text = "X"
-						end
-					end)
-					return
-				end
-				local ok, result = Persistence.Delete(name)
-				UI.Toast(
-					ok
-					and ("Configuração excluída: " .. result)
-					or result
-				)
-				controls.RefreshConfigurations()
-			end)
-		end
+	local function layoutSavedRow(entry)
+		local narrow = entry.Card.AbsoluteSize.X < 320
+		entry.Card.Size = UDim2.new(1, 0, 0, narrow and 86 or 62)
+		entry.Title.Position = UDim2.fromOffset(12, narrow and 10 or 12)
+		entry.Title.Size = UDim2.new(1, narrow and -24 or -180, 0, 18)
+		entry.Detail.Position = UDim2.fromOffset(12, 34)
+		entry.Detail.Size = UDim2.new(1, -180, 0, 14)
+		entry.Detail.Visible = not narrow
+		entry.Load.Position = narrow and UDim2.fromOffset(12, 42) or UDim2.new(1, -158, 0, 15)
+		entry.Load.Size = narrow and UDim2.new(.5, -16, 0, 32) or UDim2.fromOffset(76, 32)
+		entry.Delete.Position = narrow and UDim2.new(.5, 4, 0, 42) or UDim2.new(1, -74, 0, 15)
+		entry.Delete.Size = narrow and UDim2.new(.5, -16, 0, 32) or UDim2.fromOffset(62, 32)
 	end
-
-	controls.SaveConfig.MouseButton1Click:Connect(function()
+	function controls.RefreshConfigurations()
+		if not Runtime.Alive or not controls.ConfigList.Parent then return end
+		local names, present = Persistence.List(), {}
+		view.SavedCount = #names
+		controls.ConfigStatus.Text = tostring(#names) .. (#names == 1 and " configuração salva" or " configurações salvas")
+			.. (Persistence.HasDiskStorage() and " neste dispositivo." or " nesta sessão.")
+		controls.ConfigEmpty.Visible = #names == 0
+		for index, name in ipairs(names) do
+			present[name] = true
+			local entry = controls.ConfigRows[name]
+			if not entry then
+				entry = {}
+				entry.Card = Util.New("Frame", {
+					Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = Theme.Card, BackgroundTransparency = .10,
+					BorderSizePixel = 0, ClipsDescendants = true,
+				}, controls.ConfigList)
+				Util.Corner(entry.Card, 12)
+				Util.Stroke(entry.Card, Theme.BorderSoft, .7, 1)
+				entry.Title = UI.SettingsText(entry.Card, name, UDim2.new(), UDim2.new(), 10, Theme.Text, true)
+				entry.Detail = UI.SettingsText(entry.Card, "Pronta para carregar", UDim2.new(), UDim2.new(), 8, Theme.Sub)
+				for _, key in ipairs({"Load", "Delete"}) do
+					entry[key] = Util.New("TextButton", {
+						BackgroundColor3 = key == "Load" and Theme.AccentSoft or Theme.Surface3, BorderSizePixel = 0,
+						Text = key == "Load" and "Carregar" or "Excluir", TextColor3 = key == "Load" and Theme.Text or Theme.Sub,
+						Font = Enum.Font.GothamMedium, TextSize = 8, AutoButtonColor = false,
+					}, entry.Card)
+					Util.Corner(entry[key], 10)
+					Util.FitText(entry[key], 7, 9)
+					UI.TouchFeedback(entry[key])
+				end
+				entry.Load.Activated:Connect(function()
+					if State.UI.LayoutEditMode then return end
+					local ok, result = Persistence.Load(name)
+					if ok then
+						controls.ConfigName.Text = result
+						UI.ApplyConfigurationState("Configuração carregada: " .. result, false)
+					else UI.Toast(result) end
+				end)
+				entry.Delete.Activated:Connect(function()
+					if State.UI.LayoutEditMode then return end
+					local now = os.clock()
+					if not entry.ArmedUntil or now > entry.ArmedUntil then
+						entry.ArmedUntil = now + 3
+						entry.Delete.Text = "Confirmar"
+						entry.Delete.TextColor3 = Theme.Danger
+						UI.Toast("Toque em Confirmar para excluir " .. name .. ".")
+						task.delay(3.1, function()
+							if Runtime.Alive and entry.Card.Parent and entry.ArmedUntil and os.clock() > entry.ArmedUntil then
+								entry.ArmedUntil = nil; entry.Delete.Text = "Excluir"; entry.Delete.TextColor3 = Theme.Sub
+							end
+						end)
+						return
+					end
+					entry.ArmedUntil = nil
+					local ok, result = Persistence.Delete(name)
+					entry.Delete.Text = "Excluir"; entry.Delete.TextColor3 = Theme.Sub
+					UI.Toast(ok and ("Configuração excluída: " .. result) or result)
+					controls.RefreshConfigurations()
+				end)
+				entry.Card:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() layoutSavedRow(entry) end)
+				controls.ConfigRows[name] = entry
+			end
+			entry.Card.LayoutOrder = index
+			layoutSavedRow(entry)
+		end
+		for name, entry in pairs(controls.ConfigRows) do
+			if not present[name] then entry.Card:Destroy(); controls.ConfigRows[name] = nil end
+		end
+		view.Refresh()
+	end
+	controls.SaveConfig.Activated:Connect(function()
+		if State.UI.LayoutEditMode then return end
 		local name = Persistence.SafeName(controls.ConfigName.Text)
-		local overwrite = name ~= nil and controls.OverwriteName == name
-			and os.clock() <= (controls.OverwriteArmedUntil or 0)
+		local overwrite = name ~= nil and controls.OverwriteName == name and os.clock() <= (controls.OverwriteArmedUntil or 0)
 		local ok, result, code = Persistence.Save(controls.ConfigName.Text, overwrite)
-		controls.OverwriteName = nil
-		controls.OverwriteArmedUntil = 0
+		controls.OverwriteName, controls.OverwriteArmedUntil = nil, 0
+		controls.SaveConfig.Text = "Salvar"
 		if code == "EXISTS" then
-			controls.OverwriteName = name
-			controls.OverwriteArmedUntil = os.clock() + 3
+			controls.OverwriteName, controls.OverwriteArmedUntil = name, os.clock() + 3
+			controls.SaveConfig.Text = "Substituir"
+			task.delay(3.1, function()
+				if Runtime.Alive and controls.SaveConfig.Parent and os.clock() > controls.OverwriteArmedUntil then controls.SaveConfig.Text = "Salvar" end
+			end)
 		end
 		if ok then
 			controls.ConfigName.Text = result
+			controls.ConfigName:ReleaseFocus(false)
 			UI.Toast("Configuração salva: " .. result)
 			controls.RefreshConfigurations()
-		else
-			UI.Toast(result)
+		else UI.Toast(result) end
+	end)
+	controls.ConfigName:GetPropertyChangedSignal("Text"):Connect(function()
+		if Persistence.SafeName(controls.ConfigName.Text) ~= controls.OverwriteName then
+			controls.OverwriteName, controls.OverwriteArmedUntil = nil, 0
+			controls.SaveConfig.Text = "Salvar"
 		end
 	end)
-
 	controls.ResetArmedUntil = 0
-	controls.ResetConfig.MouseButton1Click:Connect(function()
+	controls.ResetConfig.Activated:Connect(function()
+		if State.UI.LayoutEditMode then return end
 		local now = os.clock()
 		if now > controls.ResetArmedUntil then
 			controls.ResetArmedUntil = now + 3
-			controls.ResetConfig.Text = "TOQUE DE NOVO PARA CONFIRMAR"
+			controls.ResetConfig.Text = "Confirmar restauração"
 			UI.Toast("Toque novamente para restaurar tudo.")
 			task.delay(3.1, function()
-				if Runtime.Alive and os.clock() > controls.ResetArmedUntil then
-					controls.ResetConfig.Text = "RESTAURAR TUDO"
-				end
+				if Runtime.Alive and controls.ResetConfig.Parent and os.clock() > controls.ResetArmedUntil then controls.ResetConfig.Text = "Restaurar tudo" end
 			end)
 			return
 		end
-
 		controls.ResetArmedUntil = 0
 		Persistence.Reset()
-		for player in pairs(State.ManualAllies) do
-			State.ManualAllies[player] = nil
-		end
+		for player in pairs(State.ManualAllies) do State.ManualAllies[player] = nil end
 		controls.ConfigName.Text = ""
-		controls.ResetConfig.Text = "RESTAURAR TUDO"
+		controls.ResetConfig.Text = "Restaurar tudo"
 		UI.ApplyConfigurationState("Todas as opções foram restauradas", true)
 	end)
+	local function layoutSaveForm()
+		local narrow = configPanel.AbsoluteSize.X < 280
+		configPanel.Size = UDim2.new(1, 0, 0, narrow and 126 or 94)
+		controls.ConfigName.Size = UDim2.new(1, narrow and -24 or -114, 0, 36)
+		controls.SaveConfig.Position = narrow and UDim2.fromOffset(12, 82) or UDim2.new(1, -94, 0, 38)
+		controls.SaveConfig.Size = narrow and UDim2.new(1, -24, 0, 32) or UDim2.fromOffset(82, 36)
+	end
+	configPanel:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutSaveForm)
+	layoutSaveForm()
+	view:AddSetting("FILES", {Card = configPanel}, "guardar salvar configuracao configuração nome", nil, "Salvar configuração")
+	view:AddSetting("FILES", {Card = controls.ConfigList}, "carregar excluir arquivos salvos", nil, "Configurações salvas")
+	view:AddSetting("FILES", {Card = controls.ResetConfig}, "reset padrão padrao valores originais", function() resetGroup:SetExpanded(true) end, "Restaurar tudo")
 
 	controls.ProfileOrder = {
 		"DEFAULT",
@@ -12762,9 +12869,44 @@ function Pages.BuildEngine()
 		end
 	)
 
+	local settingsIndex = {
+		{"MENU", "Theme", "cor cores tema visual"},
+		{"MENU", "LayoutStyle", "formato layout lista jogadores"},
+		{"MENU", "MenuSizeMode", "tamanho compacto equilibrado amplo"},
+		{"MENU", "MenuScale", "tamanho escala painel zoom"},
+		{"MENU", "ControlScale", "tamanho botoes botões cartões leitura"},
+		{"MOBILE", "MobileQuick", "atalhos botões botoes na tela"},
+		{"MOBILE", "MobileLock", "travar fixar posição posicao atalhos"},
+		{"MOBILE", "MobileFriendly", "troca alvo gesto deslizar mobile"},
+		{"MOBILE", "SwipeDistance", "movimento sensibilidade deslize distância distancia"},
+		{"MOBILE", "SwipeInvert", "inverter sentido direção direcao gesto"},
+		{"ORDER", "LayoutEditor", "editar ordem arrastar organizar opções opcoes"},
+		{"ORDER", "ResetControlLayout", "restaurar ordem original"},
+		{"ORDER", "Debug", "diagnostico diagnóstico debug teste"},
+	}
+	for _, entry in ipairs(settingsIndex) do
+		local control = controls[entry[2]]
+		UI.StyleSettingsControl(control)
+		local open = entry[2] == "Debug" and function() diagnosticGroup:SetExpanded(true) end or nil
+		view:AddSetting(entry[1], control, entry[3], open)
+	end
+	controls.Theme.Record.Card.LayoutOrder = 1
+	controls.LayoutStyle.Record.Card.LayoutOrder = 2
+	controls.MenuSizeMode.Record.Card.LayoutOrder = 1
+	controls.MenuScale.Record.Card.LayoutOrder = 2
+	controls.ControlScale.Record.Card.LayoutOrder = 3
+	controls.MobileQuick.Record.Card.LayoutOrder = 1
+	controls.MobileLock.Record.Card.LayoutOrder = 2
+	controls.MobileFriendly.Record.Card.LayoutOrder = 1
+	controls.SwipeDistance.Record.Card.LayoutOrder = 2
+	controls.SwipeInvert.Record.Card.LayoutOrder = 3
+	controls.LayoutEditor.Card.LayoutOrder = 1
+	controls.ResetControlLayout.Card.LayoutOrder = 2
+	State.UI.SettingsControls = controls
+
 	State.UI.RefreshEngineControls = controls.Refresh
 	State.UI.RefreshConfigurationControls = controls.RefreshConfigurations
-	showSettingsCategory("MENU", false)
+	showSettingsCategory("HOME", false)
 	controls.RefreshConfigurations()
 	controls.Refresh()
 
@@ -16156,4 +16298,4 @@ ESP.RefreshAll()
 StartLoops()
 StartRender()
 
-print("[Aim Assist Pro V34.2.0 - Jogadores e interface] carregado")
+print("[Aim Assist Pro V34.3.0 - Configurações redesenhadas] carregado")
