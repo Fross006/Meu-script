@@ -1,4 +1,4 @@
--- V34.6.0 — animações suaves no menu, nas abas, nos controles e nas janelas de ajuda.
+-- V34.6.1 — abertura e minimização contínuas, com movimento leve e fade gradual.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -4835,43 +4835,158 @@ function UI.RevealPage(page, direction)
 	end)
 end
 
+-- Fade and translate the visible window without resizing its controls.
+-- One progress tween drives the transition; interrupted actions reuse it.
+function UI.CaptureWindowVisual(motion, object)
+	if not object or not object.Parent or object == motion.Shield then return end
+	if object:IsA("GuiObject") and object ~= motion.Object and not object.Visible then
+		if not motion.HiddenRoots[object] then
+			motion.HiddenRoots[object] = true
+			motion.Connections[#motion.Connections + 1] = object:GetPropertyChangedSignal("Visible"):Connect(function()
+				if object.Visible and UI.Motion.Windows[motion.Object] == motion then
+					UI.CaptureWindowVisual(motion, object)
+					UI.PaintWindowMotion(motion)
+				end
+			end)
+		end
+		return
+	end
+	if motion.Seen[object] then return end
+	motion.Seen[object] = true
+	local function capture(property)
+		motion.Opacity[#motion.Opacity + 1] = {
+			Object = object, Property = property, Base = object[property],
+		}
+	end
+	if object:IsA("GuiObject") then
+		capture("BackgroundTransparency")
+		if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+			capture("TextTransparency")
+			capture("TextStrokeTransparency")
+		elseif object:IsA("ImageLabel") or object:IsA("ImageButton") or object:IsA("ViewportFrame") then
+			capture("ImageTransparency")
+		elseif object:IsA("ScrollingFrame") then
+			capture("ScrollBarImageTransparency")
+		end
+	elseif object:IsA("UIStroke") then
+		capture("Transparency")
+	end
+	for _, child in ipairs(object:GetChildren()) do UI.CaptureWindowVisual(motion, child) end
+end
+
+function UI.PaintWindowMotion(motion)
+	if UI.Motion.Windows[motion.Object] ~= motion or not motion.Object.Parent then return end
+	local hidden = math.clamp(motion.Driver.Value, 0, 1)
+	for _, entry in ipairs(motion.Opacity) do
+		local object, property = entry.Object, entry.Property
+		if object.Parent then
+			local current = object[property]
+			-- Preserve changes made by the live UI while the window is moving.
+			if entry.Last ~= nil and current ~= entry.Last then entry.Base = current end
+			local value = entry.Base + (1 - entry.Base) * hidden
+			if current ~= value then object[property] = value end
+			-- Engine float properties may round the assigned Lua number.
+			entry.Last = object[property]
+		end
+	end
+	local rest = motion.Rest
+	motion.Object.Position = UDim2.new(rest.X.Scale, rest.X.Offset,
+		rest.Y.Scale, rest.Y.Offset + motion.Distance * hidden)
+end
+
 function UI.FinishWindowMotion(object)
 	local motion = UI.Motion.Windows[object]
 	if not motion then return end
 	UI.Motion.Windows[object] = nil
-	Util.StopTween(motion.Scale)
+	Util.StopTween(motion.Driver)
+	for _, connection in ipairs(motion.Connections) do connection:Disconnect() end
+	-- Hide before restoring paint so the last closing frame cannot flash.
 	if object.Parent then
-		motion.Scale.Scale = 1
 		object.Visible = motion.Visible
+		object.Position = motion.Rest
 	end
+	for _, entry in ipairs(motion.Opacity) do
+		if entry.Object.Parent then
+			local current = entry.Object[entry.Property]
+			if entry.Last ~= nil and current ~= entry.Last then entry.Base = current end
+			entry.Object[entry.Property] = entry.Base
+		end
+	end
+	if motion.Shield then motion.Shield:Destroy() end
+	motion.Driver:Destroy()
 end
 
 function UI.SetWindowVisible(object, visible, instant)
 	if not object or not object.Parent then return end
-	local scale = object:FindFirstChild("AAP_WindowScale")
-	if not scale then scale = Util.New("UIScale", {Name = "AAP_WindowScale", Scale = 1}, object) end
-	local previous = UI.Motion.Windows[object]
-	Util.StopTween(scale)
-	if instant or not Runtime.Alive or not UI.MotionReady then
-		UI.Motion.Windows[object] = nil
-		scale.Scale = 1
+	local motion = UI.Motion.Windows[object]
+	if instant == true or not Runtime.Alive or not UI.MotionReady then
+		if motion then motion.Visible = visible; UI.FinishWindowMotion(object) end
 		object.Visible = visible
 		return
 	end
-	local motion = {Scale = scale, Visible = visible}
-	UI.Motion.Windows[object] = motion
-	if visible then
-		if not previous or not object.Visible then scale.Scale = 0.985 end
-		object.Visible = true
+	if motion and motion.Visible == visible then return end
+	if not motion and object.Visible == visible then return end
+	if not motion then
+		local compact = object == State.UI.CompactBar
+		motion = {
+			Object = object, Rest = object.Position, Visible = visible,
+			Distance = compact and 6 or 12,
+			OpenTime = compact and 0.20 or 0.28,
+			CloseTime = compact and 0.16 or 0.22,
+			Opacity = {}, Seen = {}, HiddenRoots = {}, Added = {}, Connections = {},
+			Driver = Util.New("NumberValue", {Name = "AAP_WindowProgress", Value = visible and 1 or 0}, object),
+		}
+		UI.Motion.Windows[object] = motion
+		UI.CaptureWindowVisual(motion, object)
+		motion.Shield = Util.New("TextButton", {
+			Name = "AAP_WindowInputShield", Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1, BorderSizePixel = 0, Text = "",
+			AutoButtonColor = false, Active = true, Selectable = false,
+			Visible = not visible, ZIndex = 1000000,
+		}, object)
+		motion.Connections[#motion.Connections + 1] = motion.Driver:GetPropertyChangedSignal("Value"):Connect(function()
+			UI.PaintWindowMotion(motion)
+		end)
+		motion.Connections[#motion.Connections + 1] = object.Destroying:Connect(function()
+			UI.FinishWindowMotion(object)
+		end)
+		motion.Connections[#motion.Connections + 1] = object.DescendantAdded:Connect(function(child)
+			motion.Added[child] = true
+			if motion.AddedPending then return end
+			motion.AddedPending = true
+			task.defer(function()
+				motion.AddedPending = false
+				if UI.Motion.Windows[object] ~= motion then return end
+				for added in pairs(motion.Added) do
+					local ancestor, shown = added.Parent, true
+					while ancestor and ancestor ~= object do
+						if ancestor:IsA("GuiObject") and not ancestor.Visible then shown = false; break end
+						ancestor = ancestor.Parent
+					end
+					if shown and ancestor == object then UI.CaptureWindowVisual(motion, added) end
+				end
+				motion.Added = {}
+				UI.PaintWindowMotion(motion)
+			end)
+		end)
+	else
+		Util.StopTween(motion.Driver)
+		motion.Visible = visible
+		motion.Shield.Visible = not visible
 	end
-	Util.Tween(scale, {Scale = visible and 1 or 0.985}, visible and UI.Motion.Open or UI.Motion.Close,
-		nil, visible and Enum.EasingDirection.Out or Enum.EasingDirection.In, function()
-			if UI.Motion.Windows[object] ~= motion then return end
-			UI.Motion.Windows[object] = nil
-			object.Visible = visible
-			scale.Scale = 1
+	object.Visible = true
+	UI.PaintWindowMotion(motion)
+	local target = visible and 0 or 1
+	local remaining = math.abs(target - motion.Driver.Value)
+	local duration = math.max(0.06, (visible and motion.OpenTime or motion.CloseTime) * remaining)
+	Util.Tween(motion.Driver, {Value = target}, duration,
+		visible and Enum.EasingStyle.Quart or Enum.EasingStyle.Sine,
+		visible and Enum.EasingDirection.Out or Enum.EasingDirection.InOut, function()
+			if UI.Motion.Windows[object] == motion then UI.FinishWindowMotion(object) end
 		end)
 end
+
+
 
 function UI.CaptureDialogOpacity(active)
 	if active.Opacity then return end
@@ -7367,6 +7482,7 @@ local function BuildVisionRootUI()
 
 	local main = Util.New("Frame", {
 		Name = "Main",
+		Visible = false,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.52),
 		Size = GetVisionMenuSize(0.88),
@@ -8546,7 +8662,8 @@ function UI.ClampMovableToViewport()
 		if object and object.Parent then
 			local size = object.AbsoluteSize
 			local anchor = object.AnchorPoint
-			local position = object.Position
+			local motion = UI.Motion.Windows[object]
+			local position = motion and motion.Rest or object.Position
 			local baseX = viewport.X * position.X.Scale
 			local baseY = viewport.Y * position.Y.Scale
 			local currentX = baseX + position.X.Offset
@@ -8568,12 +8685,18 @@ function UI.ClampMovableToViewport()
 				6
 			)
 
-			object.Position = UDim2.new(
+			local position = UDim2.new(
 				position.X.Scale,
 				clampedX - baseX,
 				position.Y.Scale,
 				clampedY - baseY
 			)
+			if motion then
+				motion.Rest = position
+				UI.PaintWindowMotion(motion)
+			else
+				object.Position = position
+			end
 		end
 	end
 end
@@ -14810,8 +14933,8 @@ local function WireVisionGeneralUI()
 	local menuScaleTween = nil
 	local menuScaleGeneration = 0
 
-	local function settleWindow()
-		UI.FinishWindowMotion(State.UI.Main)
+	local function settleWindow(keepVisibilityMotion)
+		if not keepVisibilityMotion then UI.FinishWindowMotion(State.UI.Main) end
 		Util.StopTween(State.UI.Main, true)
 		menuScaleTween = nil
 		menuScaleGeneration += 1
@@ -14976,7 +15099,7 @@ local function WireVisionGeneralUI()
 		if minimized then
 			return
 		end
-		settleWindow()
+		settleWindow(true)
 		UI.CloseHelpDialog(true)
 		UI.CloseChoiceMenu(true)
 		UI.FlushClosingDialogs()
@@ -14984,8 +15107,9 @@ local function WireVisionGeneralUI()
 		UI.ResetTouchFeedback()
 
 		if not maximized then
+			local motion = UI.Motion.Windows[State.UI.Main]
 			expandedSize = State.UI.Main.Size
-			expandedPosition = State.UI.Main.Position
+			expandedPosition = motion and motion.Rest or State.UI.Main.Position
 		end
 
 		minimized = true
@@ -15002,11 +15126,10 @@ local function WireVisionGeneralUI()
 		minimized = false
 		UI.SetWindowVisible(State.UI.CompactBar, false)
 		setMaximizeConstraint()
-		State.UI.Main.Size =
-			maximized
-			and GetVisionMenuSize(maximizedFill, 1)
-			or expandedSize
-		State.UI.Main.Position = maximized and UDim2.fromScale(0.5, 0.52) or expandedPosition
+		if not UI.Motion.Windows[State.UI.Main] then
+			State.UI.Main.Size = maximized and GetVisionMenuSize(maximizedFill, 1) or expandedSize
+			State.UI.Main.Position = maximized and UDim2.fromScale(0.5, 0.52) or expandedPosition
+		end
 		UI.SetWindowVisible(State.UI.Main, true)
 		task.defer(UI.ClampMovableToViewport)
 	end)
@@ -16500,9 +16623,9 @@ StartLoops()
 StartRender()
 UI.InitializeMotion()
 task.defer(function()
-	if Runtime.Alive and State.UI.Main and State.UI.Main.Visible then
+	if Runtime.Alive and State.UI.Main and State.UI.Main.Parent then
 		UI.SetWindowVisible(State.UI.Main, true)
 	end
 end)
 
-print("[VisionX V34.6.0 - Animações suaves] carregado")
+print("[VisionX V34.6.1 - Abertura e minimização fluidas] carregado")
