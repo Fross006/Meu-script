@@ -1,4 +1,4 @@
--- V34.5.1 — cartões proporcionais, colunas equilibradas e rolagem completa nas abas.
+-- V34.6.0 — animações suaves no menu, nas abas, nos controles e nas janelas de ajuda.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -1738,21 +1738,60 @@ function Util.InnerHighlight(obj, inset, transparency, zIndex)
 	return line
 end
 
-function Util.Tween(obj, props, duration)
-	if not obj or not obj.Parent then
+-- One transition per object; replacement starts from the current visual state.
+Util.TweenJobs = setmetatable({}, {__mode = "k"})
+
+function Util.StopTween(object, finish)
+	local job = Util.TweenJobs[object]
+	if not job then return end
+	Util.TweenJobs[object] = nil
+	job.Completed:Disconnect()
+	job.Destroying:Disconnect()
+	job.Tween:Cancel()
+	if finish and object.Parent then
+		for property, value in pairs(job.Goal) do object[property] = value end
+	end
+	job.Tween:Destroy()
+end
+
+function Util.Tween(object, properties, duration, style, direction, onFinished)
+	if not object or not object.Parent or not Runtime.Alive then return nil end
+	local previous = Util.TweenJobs[object]
+	if previous and not onFinished then
+		local same = true
+		for key, value in pairs(properties) do
+			if previous.Goal[key] ~= value then same = false; break end
+		end
+		for key in pairs(previous.Goal) do
+			if properties[key] == nil then same = false; break end
+		end
+		if same then return previous.Tween end
+	end
+	Util.StopTween(object)
+	local unchanged = true
+	for key, value in pairs(properties) do
+		if object[key] ~= value then unchanged = false; break end
+	end
+	if unchanged then
+		if onFinished then onFinished() end
 		return nil
 	end
-
-	local tween = S.TweenService:Create(
-		obj,
-		TweenInfo.new(
-			duration or 0.14,
-			Enum.EasingStyle.Quart,
-			Enum.EasingDirection.Out
-		),
-		props
-	)
-
+	local tween = S.TweenService:Create(object, TweenInfo.new(
+		duration or 0.16, style or Enum.EasingStyle.Cubic,
+		direction or Enum.EasingDirection.Out), properties)
+	local job = {Tween = tween, Goal = table.clone(properties)}
+	Util.TweenJobs[object] = job
+	job.Destroying = object.Destroying:Connect(function() Util.StopTween(object) end)
+	job.Completed = tween.Completed:Connect(function(playbackState)
+		if Util.TweenJobs[object] ~= job then return end
+		Util.TweenJobs[object] = nil
+		job.Completed:Disconnect()
+		job.Destroying:Disconnect()
+		task.defer(function() tween:Destroy() end)
+		if playbackState == Enum.PlaybackState.Completed and Runtime.Alive and object.Parent then
+			if onFinished then onFinished() end
+		end
+	end)
 	tween:Play()
 	return tween
 end
@@ -4719,49 +4758,205 @@ local UI = {}
 
 -- Touch-first feedback that never mutates the control's real Size.
 -- UIScale avoids cumulative shrink/grow drift on rapid taps.
-function UI.TouchFeedback(guiObject)
-	if not guiObject or not guiObject:IsA("GuiObject") then
-		return nil
-	end
+-- Short, finite animations. No permanent render loop or changes to saved geometry.
+UI.Motion = {
+	Press = 0.075, Release = 0.16, Page = 0.18, Open = 0.20, Close = 0.12,
+	Pressed = {}, Windows = {}, ClosingDialogs = {},
+}
+UI.MotionReady = false
 
+function UI.ResetTouchFeedback()
+	for _, press in pairs(UI.Motion.Pressed) do press.Release(true) end
+end
+
+function UI.TouchFeedback(guiObject)
+	if not guiObject or not guiObject:IsA("GuiObject") then return nil end
 	local scale = guiObject:FindFirstChild("AAP_TouchScale")
 	if not scale then
-		scale = Util.New("UIScale", {
-			Name = "AAP_TouchScale",
-			Scale = 1,
-		}, guiObject)
+		scale = Util.New("UIScale", {Name = "AAP_TouchScale", Scale = 1}, guiObject)
 	end
-
-	local pressedInput = nil
-
+	if guiObject:GetAttribute("AAP_FeedbackBound") then return scale end
+	guiObject:SetAttribute("AAP_FeedbackBound", true)
+	local function release(instant)
+		local press = UI.Motion.Pressed[guiObject]
+		if not press then return end
+		UI.Motion.Pressed[guiObject] = nil
+		for _, connection in ipairs(press.Connections) do connection:Disconnect() end
+		if instant then
+			Util.StopTween(scale)
+			if scale.Parent then scale.Scale = 1 end
+		else
+			Util.Tween(scale, {Scale = 1}, UI.Motion.Release)
+		end
+	end
 	guiObject.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if pressedInput and pressedInput ~= input then
-				return
-			end
-
-			pressedInput = input
-			Util.Tween(scale, {Scale = 0.975}, 0.08)
-		end
+		if not Runtime.Alive or State.UI.LayoutEditMode or UI.Motion.Pressed[guiObject] then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch
+			and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		local press = {Input = input, Origin = input.Position, Release = release, Connections = {}}
+		UI.Motion.Pressed[guiObject] = press
+		press.Connections[1] = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
+			if input.UserInputState == Enum.UserInputState.End
+				or input.UserInputState == Enum.UserInputState.Cancel then release(false) end
+		end)
+		press.Connections[2] = input:GetPropertyChangedSignal("Position"):Connect(function()
+			if (input.Position - press.Origin).Magnitude > 10 then release(false) end
+		end)
+		Util.Tween(scale, {Scale = guiObject.AbsoluteSize.X >= 180 and 0.99 or 0.965},
+			UI.Motion.Press, Enum.EasingStyle.Quad)
 	end)
-
 	guiObject.InputEnded:Connect(function(input)
-		if input == pressedInput then
-
-			pressedInput = nil
-			Util.Tween(scale, {Scale = 1}, 0.12)
-		end
+		local press = UI.Motion.Pressed[guiObject]
+		if press and press.Input == input then release(false) end
 	end)
-
-	guiObject.MouseLeave:Connect(function()
-		if pressedInput then
-			pressedInput = nil
-			Util.Tween(scale, {Scale = 1}, 0.12)
-		end
-	end)
-
+	guiObject.MouseLeave:Connect(function() release(false) end)
+	guiObject.Destroying:Connect(function() release(true) end)
 	return scale
+end
+
+function UI.FinishPageTransition()
+	local transition = UI.Motion.PageTransition
+	if not transition then return end
+	UI.Motion.PageTransition = nil
+	Util.StopTween(transition.Page)
+	if transition.Page.Parent then transition.Page.Position = transition.Rest end
+end
+
+function UI.RevealPage(page, direction)
+	UI.FinishPageTransition()
+	if not UI.MotionReady or not page or not page.Parent or not page.Visible
+		or State.UI.LayoutEditMode then return end
+	local rest = page.Position
+	local transition = {Page = page, Rest = rest}
+	UI.Motion.PageTransition = transition
+	page.Position = UDim2.new(rest.X.Scale, rest.X.Offset + 6 * (direction or 1), rest.Y.Scale, rest.Y.Offset)
+	Util.Tween(page, {Position = rest}, UI.Motion.Page, nil, nil, function()
+		if UI.Motion.PageTransition == transition then UI.Motion.PageTransition = nil end
+	end)
+end
+
+function UI.FinishWindowMotion(object)
+	local motion = UI.Motion.Windows[object]
+	if not motion then return end
+	UI.Motion.Windows[object] = nil
+	Util.StopTween(motion.Scale)
+	if object.Parent then
+		motion.Scale.Scale = 1
+		object.Visible = motion.Visible
+	end
+end
+
+function UI.SetWindowVisible(object, visible, instant)
+	if not object or not object.Parent then return end
+	local scale = object:FindFirstChild("AAP_WindowScale")
+	if not scale then scale = Util.New("UIScale", {Name = "AAP_WindowScale", Scale = 1}, object) end
+	local previous = UI.Motion.Windows[object]
+	Util.StopTween(scale)
+	if instant or not Runtime.Alive or not UI.MotionReady then
+		UI.Motion.Windows[object] = nil
+		scale.Scale = 1
+		object.Visible = visible
+		return
+	end
+	local motion = {Scale = scale, Visible = visible}
+	UI.Motion.Windows[object] = motion
+	if visible then
+		if not previous or not object.Visible then scale.Scale = 0.985 end
+		object.Visible = true
+	end
+	Util.Tween(scale, {Scale = visible and 1 or 0.985}, visible and UI.Motion.Open or UI.Motion.Close,
+		nil, visible and Enum.EasingDirection.Out or Enum.EasingDirection.In, function()
+			if UI.Motion.Windows[object] ~= motion then return end
+			UI.Motion.Windows[object] = nil
+			object.Visible = visible
+			scale.Scale = 1
+		end)
+end
+
+function UI.CaptureDialogOpacity(active)
+	if active.Opacity then return end
+	active.Opacity = {}
+	local objects = {active.Overlay, active.Panel}
+	for _, object in ipairs(active.Panel:GetDescendants()) do objects[#objects + 1] = object end
+	for _, object in ipairs(objects) do
+		local values = {}
+		local function capture(property)
+			if object[property] < 1 then values[property] = object[property] end
+		end
+		if object:IsA("GuiObject") then
+			capture("BackgroundTransparency")
+			if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+				capture("TextTransparency")
+			end
+			if object:IsA("ImageLabel") or object:IsA("ImageButton") then capture("ImageTransparency") end
+			if object:IsA("ScrollingFrame") then capture("ScrollBarImageTransparency") end
+		elseif object:IsA("UIStroke") then capture("Transparency") end
+		if next(values) then active.Opacity[#active.Opacity + 1] = {Object = object, Values = values} end
+	end
+	active.Scale = Util.New("UIScale", {Name = "AAP_DialogScale", Scale = 1}, active.Panel)
+end
+
+function UI.AnimateDialogIn(active)
+	if not active or not UI.MotionReady then return end
+	UI.CaptureDialogOpacity(active)
+	for _, entry in ipairs(active.Opacity) do
+		for property in pairs(entry.Values) do entry.Object[property] = 1 end
+		Util.Tween(entry.Object, entry.Values, UI.Motion.Open)
+	end
+	active.Scale.Scale = 0.985
+	Util.Tween(active.Scale, {Scale = 1}, UI.Motion.Open)
+end
+
+function UI.DestroyDialog(active)
+	UI.Motion.ClosingDialogs[active] = nil
+	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
+	for _, entry in ipairs(active.Opacity or {}) do Util.StopTween(entry.Object) end
+	if active.Scale then Util.StopTween(active.Scale) end
+	if active.Overlay and active.Overlay.Parent then active.Overlay:Destroy() end
+	if active.Panel and active.Panel.Parent then active.Panel:Destroy() end
+end
+
+function UI.FlushClosingDialogs()
+	for active in pairs(UI.Motion.ClosingDialogs) do UI.DestroyDialog(active) end
+end
+
+function UI.DismissDialog(active, instant)
+	if not active then return end
+	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
+	UI.ResetTouchFeedback()
+	-- Activated passes an InputObject; only a literal true requests immediate closing.
+	if instant == true or not Runtime.Alive or not UI.MotionReady
+		or not active.Panel or not active.Panel.Parent then UI.DestroyDialog(active); return end
+	UI.CaptureDialogOpacity(active)
+	UI.Motion.ClosingDialogs[active] = true
+	for _, entry in ipairs(active.Opacity) do
+		local hidden = {}
+		for property in pairs(entry.Values) do hidden[property] = 1 end
+		Util.Tween(entry.Object, hidden, UI.Motion.Close, nil, Enum.EasingDirection.In)
+	end
+	Util.Tween(active.Scale, {Scale = 0.985}, UI.Motion.Close, nil, Enum.EasingDirection.In,
+		function() UI.DestroyDialog(active) end)
+end
+
+function UI.InitializeMotion()
+	if UI.MotionReady then return end
+	UI.MotionReady = true
+	Runtime.Track(S.UIS.InputEnded:Connect(function(input)
+		for _, press in pairs(UI.Motion.Pressed) do
+			if press.Input == input or (press.Input.UserInputType == Enum.UserInputType.MouseButton1
+				and input.UserInputType == Enum.UserInputType.MouseButton1) then press.Release(false) end
+		end
+	end))
+	Runtime.Track(S.UIS.WindowFocusReleased:Connect(UI.ResetTouchFeedback))
+end
+
+function UI.CleanupMotion()
+	UI.MotionReady = false
+	UI.ResetTouchFeedback()
+	UI.FinishPageTransition()
+	for object in pairs(UI.Motion.Windows) do UI.FinishWindowMotion(object) end
+	UI.FlushClosingDialogs()
+	for object in pairs(Util.TweenJobs) do Util.StopTween(object) end
 end
 
 function UI.ApplyTheme(themeName)
@@ -4796,6 +4991,12 @@ function UI.ApplyTheme(themeName)
 	}
 
 	for _, object in ipairs(objects) do
+		local job = Util.TweenJobs[object]
+		if job then
+			for property in pairs(job.Goal) do
+				if string.find(property, "Color", 1, true) then Util.StopTween(object, true); break end
+			end
+		end
 		for _, property in ipairs(properties) do
 			local key = object:GetAttribute("AAPTheme_" .. property)
 			if key and Theme[key] then
@@ -5006,30 +5207,25 @@ function UI.Toast(message)
 	end)
 end
 
-function UI.CloseChoiceMenu()
+function UI.CloseChoiceMenu(instant)
 	local active = State.UI.ActiveChoiceMenu
 	State.UI.ActiveChoiceMenu = nil
-	if not active then return end
-	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
-	if active.Overlay and active.Overlay.Parent then active.Overlay:Destroy() end
-	if active.Panel and active.Panel.Parent then active.Panel:Destroy() end
+	UI.DismissDialog(active, instant)
 end
 
-function UI.CloseHelpDialog()
+function UI.CloseHelpDialog(instant)
 	local active = State.UI.ActiveHelpDialog
 	State.UI.ActiveHelpDialog = nil
-	if not active then return end
-	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
-	if active.Overlay and active.Overlay.Parent then active.Overlay:Destroy() end
-	if active.Panel and active.Panel.Parent then active.Panel:Destroy() end
+	UI.DismissDialog(active, instant)
 end
 
 function UI.OpenHelpDialog(title, message)
 	local root = State.UI.Root
 	if not root or not root.Parent then return false end
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(true) end
-	UI.CloseChoiceMenu()
-	UI.CloseHelpDialog()
+	UI.CloseChoiceMenu(true)
+	UI.CloseHelpDialog(true)
+	UI.FlushClosingDialogs()
 
 	local overlay = Util.New("TextButton", {
 		Name = "AAP_HelpOverlay", Size = UDim2.fromScale(1, 1),
@@ -5126,6 +5322,7 @@ function UI.OpenHelpDialog(title, message)
 	overlay.Activated:Connect(UI.CloseHelpDialog)
 	close.Activated:Connect(UI.CloseHelpDialog)
 	confirm.Activated:Connect(UI.CloseHelpDialog)
+	UI.AnimateDialogIn(State.UI.ActiveHelpDialog)
 	return true
 end
 
@@ -5162,8 +5359,9 @@ function UI.OpenChoiceMenu(anchor, title, choices, currentValue, onSelected)
 		return false
 	end
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(true) end
-	UI.CloseChoiceMenu()
-	UI.CloseHelpDialog()
+	UI.CloseChoiceMenu(true)
+	UI.CloseHelpDialog(true)
+	UI.FlushClosingDialogs()
 
 	local overlay = Util.New("TextButton", {
 		Name = "AAP_ChoiceOverlay", Size = UDim2.fromScale(1, 1),
@@ -5315,6 +5513,7 @@ function UI.OpenChoiceMenu(anchor, title, choices, currentValue, onSelected)
 	menu.Connections[1] = root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
 	overlay.Activated:Connect(UI.CloseChoiceMenu)
 	close.Activated:Connect(UI.CloseChoiceMenu)
+	UI.AnimateDialogIn(menu)
 	return true
 end
 
@@ -6264,10 +6463,7 @@ function UI.SetToggle(control, enabled)
 		return
 	end
 
-	control.Card.BackgroundColor3 =
-		enabled
-		and Theme.CardActive
-		or Theme.Card
+	Util.Tween(control.Card, {BackgroundColor3 = enabled and Theme.CardActive or Theme.Card}, 0.16)
 
 	if control.Stroke then
 		control.Stroke.Color =
@@ -6286,7 +6482,7 @@ function UI.SetToggle(control, enabled)
 					and Theme.AccentSoft
 					or Theme.Chip
 			},
-			0.10
+			0.16
 		)
 	end
 
@@ -6311,7 +6507,7 @@ function UI.SetToggle(control, enabled)
 					and Theme.Text
 					or Theme.Muted
 			},
-			0.10
+			0.16
 		)
 	end
 end
@@ -8131,6 +8327,7 @@ function UI.AttachPageScrollCue(page)
 					+ math.max(page.AbsoluteWindowSize.Y * 0.72, 120),
 				maxY
 			)
+		UI.FinishPageTransition()
 		Util.Tween(page, {CanvasPosition = Vector2.new(0, targetY)}, 0.16)
 	end)
 
@@ -8243,15 +8440,25 @@ function UI.CreateNavButton(text)
 end
 
 function UI.ShowPage(page)
+	if not page or not page.Parent then return end
+	local previous = State.UI.ActivePage
+	local previousX, nextX = 0, 0
+	if previous ~= page then
+		UI.FinishPageTransition()
+		UI.ResetTouchFeedback()
+	end
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(false) end
 	if State.UI.ActiveChoiceMenu then
-		UI.CloseChoiceMenu()
+		UI.CloseChoiceMenu(true)
 	end
 	if State.UI.ActiveHelpDialog then
-		UI.CloseHelpDialog()
+		UI.CloseHelpDialog(true)
 	end
 
+	UI.FlushClosingDialogs()
 	for button, target in pairs(State.UI.PageMap) do
+		if target == previous then previousX = button.AbsolutePosition.X end
+		if target == page then nextX = button.AbsolutePosition.X end
 		local active = target == page
 		local indicator = button:FindFirstChild("Indicator")
 		local navStroke = button:FindFirstChild("NavStroke")
@@ -8265,18 +8472,18 @@ function UI.ShowPage(page)
 			{
 				BackgroundColor3 =
 					active and Theme.CardActive or Theme.Surface2,
-				BackgroundTransparency = active and 0.02 or 0.12,
+				BackgroundTransparency = active and 0.02 or 0.16,
 				TextColor3 =
 					active and Theme.Text or Theme.Sub,
 			},
-			0.12
+			0.16
 		)
 
 		if navGlow then
 			Util.Tween(
 				navGlow,
 				{BackgroundTransparency = active and 0.36 or 1},
-				0.14
+				0.16
 			)
 		end
 
@@ -8285,9 +8492,9 @@ function UI.ShowPage(page)
 				navStroke,
 				{
 					Color = active and Theme.Accent or Theme.BorderSoft,
-					Transparency = active and 0.12 or 0.68,
+					Transparency = active and 0.16 or 0.68,
 				},
-				0.12
+				0.16
 			)
 		end
 
@@ -8295,7 +8502,7 @@ function UI.ShowPage(page)
 			Util.Tween(
 				navTitle,
 				{TextColor3 = active and Theme.Text or Theme.Sub},
-				0.12
+				0.16
 			)
 		end
 
@@ -8310,12 +8517,13 @@ function UI.ShowPage(page)
 							and UDim2.fromOffset(27, 3)
 							or UDim2.fromOffset(13, 2),
 				},
-				0.12
+				0.16
 			)
 		end
 	end
 
 	State.UI.ActivePage = page
+	if previous and previous ~= page then UI.RevealPage(page, nextX < previousX and -1 or 1) end
 	task.defer(function()
 		for target in pairs(UI.PageScrollCues) do
 			UI.RefreshPageScrollCue(target)
@@ -8516,7 +8724,7 @@ function UI.SetRailToggle(control, enabled)
 			Position = enabled and UDim2.fromOffset(19, 3) or UDim2.fromOffset(3, 3),
 			BackgroundColor3 = enabled and Theme.Text or Theme.Muted,
 		},
-		0.10
+		0.16
 	)
 end
 
@@ -8777,7 +8985,7 @@ function UI.SetMiniToggle(control, enabled, enabledText, disabledText)
 				or UDim2.fromOffset(3, 3),
 			BackgroundColor3 = enabled and Theme.Text or Theme.Muted,
 		},
-		0.10
+		0.16
 	)
 end
 
@@ -10118,18 +10326,20 @@ function Pages.BuildAssistant()
 	function controls.Show(key)
 		if not Runtime.Alive or not page.Parent then return end
 		if key ~= "MODE" then key = "WEAPON" end
+		local previous = controls.Active
 		controls.Scroll[controls.Active] = page.CanvasPosition.Y
 		controls.Active = key
 		controls.WeaponPane.Visible = key == "WEAPON"
 		controls.ModePane.Visible = key == "MODE"
 		for tabKey, button in pairs(controls.Tabs) do
 			local selected = tabKey == key
-			button.BackgroundTransparency = selected and .05 or 1
-			button.TextColor3 = selected and Theme.Accent2 or Theme.Sub
+			Util.Tween(button, {BackgroundTransparency = selected and .05 or 1,
+				TextColor3 = selected and Theme.Accent2 or Theme.Sub}, 0.16)
 		end
 		controls.Generation += 1
 		local generation = controls.Generation
 		controls.Layout()
+		if previous ~= key then UI.RevealPage(page, key == "MODE" and 1 or -1) end
 		task.defer(function()
 			S.RunService.Heartbeat:Wait()
 			if Runtime.Alive and page.Parent and generation == controls.Generation then page.CanvasPosition = Vector2.new(0, controls.Scroll[key] or 0) end
@@ -11932,6 +12142,7 @@ function UI.CreateSettingsWorkspace(page)
 		for _, definition in ipairs(definitions) do if definition.Key == key then view.Title.Text = definition.Label end end
 	end
 	function view.Show(key, resetScroll)
+		local previous = view.Display
 		if not Runtime.Alive or not page.Parent then return end
 		if not view.Categories[key] or key == "SEARCH" then key = "HOME" end
 		rememberScroll()
@@ -11942,6 +12153,7 @@ function UI.CreateSettingsWorkspace(page)
 		view.Search:ReleaseFocus(false)
 		view.Active = key
 		showOnly(key)
+		if previous ~= key then UI.RevealPage(page, key == "HOME" and -1 or 1) end
 		if resetScroll then view.Scroll[key] = 0 end
 		local generation = view.Generation
 		task.defer(function()
@@ -13877,7 +14089,7 @@ function UI.PlayerFromWorldInstance(instance)
 end
 
 function UI.IsPointOverInteractiveUI(screenPoint, includeExternalButtons)
-	if State.UI.ActiveHelpDialog or State.UI.ActiveChoiceMenu then return true end
+	if State.UI.ActiveHelpDialog or State.UI.ActiveChoiceMenu or next(UI.Motion.ClosingDialogs) then return true end
 	local function inside(guiObject)
 		if not guiObject
 			or not guiObject.Parent
@@ -14598,6 +14810,15 @@ local function WireVisionGeneralUI()
 	local menuScaleTween = nil
 	local menuScaleGeneration = 0
 
+	local function settleWindow()
+		UI.FinishWindowMotion(State.UI.Main)
+		Util.StopTween(State.UI.Main, true)
+		menuScaleTween = nil
+		menuScaleGeneration += 1
+		maximizeGeneration += 1
+		maximizeTransitioning = false
+	end
+
 	local function configuredManualSize()
 		local width = Persistence.FiniteNumber(Config.MenuCustomWidth, 0)
 		local height = Persistence.FiniteNumber(Config.MenuCustomHeight, 0)
@@ -14671,6 +14892,11 @@ local function WireVisionGeneralUI()
 		if maximized or not State.UI.Main.Visible then
 			return targetSize
 		end
+		if maximizeTransitioning then
+			Util.StopTween(State.UI.Main, true)
+			maximizeTransitioning = false
+			maximizeGeneration += 1
+		end
 
 		if menuScaleTween then
 			pcall(function()
@@ -14680,6 +14906,7 @@ local function WireVisionGeneralUI()
 		end
 
 		if instant then
+			Util.StopTween(State.UI.Main)
 			State.UI.Main.Size = targetSize
 			UI.ClampMovableToViewport()
 		else
@@ -14704,6 +14931,9 @@ local function WireVisionGeneralUI()
 	end
 
 	State.UI.ResetWindowLayout = function()
+		settleWindow()
+		UI.FinishPageTransition()
+		UI.ResetTouchFeedback()
 		minimized = false
 		maximized = false
 		maximizeTransitioning = false
@@ -14711,8 +14941,8 @@ local function WireVisionGeneralUI()
 		manualSize = nil
 		expandedPosition = UDim2.fromScale(0.5, 0.52)
 		State.UI.Main.Position = expandedPosition
-		State.UI.Main.Visible = true
-		State.UI.CompactBar.Visible = false
+		UI.SetWindowVisible(State.UI.Main, true, true)
+		UI.SetWindowVisible(State.UI.CompactBar, false, true)
 		State.UI.CompactBar.Position = UDim2.fromScale(0.5, 0.09)
 		State.UI.MobileQuickControls.Position = UDim2.new(0, 16, 0.62, 0)
 		State.UI.Maximize.Text = "+"
@@ -14746,6 +14976,12 @@ local function WireVisionGeneralUI()
 		if minimized then
 			return
 		end
+		settleWindow()
+		UI.CloseHelpDialog(true)
+		UI.CloseChoiceMenu(true)
+		UI.FlushClosingDialogs()
+		UI.FinishPageTransition()
+		UI.ResetTouchFeedback()
 
 		if not maximized then
 			expandedSize = State.UI.Main.Size
@@ -14754,8 +14990,8 @@ local function WireVisionGeneralUI()
 
 		minimized = true
 		State.UI.CompactSub.Text = State.UI.Status.Text
-		State.UI.Main.Visible = false
-		State.UI.CompactBar.Visible = true
+		UI.SetWindowVisible(State.UI.Main, false)
+		UI.SetWindowVisible(State.UI.CompactBar, true)
 		task.defer(UI.ClampMovableToViewport)
 	end)
 
@@ -14764,21 +15000,26 @@ local function WireVisionGeneralUI()
 			return
 		end
 		minimized = false
-		State.UI.CompactBar.Visible = false
+		UI.SetWindowVisible(State.UI.CompactBar, false)
 		setMaximizeConstraint()
-		State.UI.Main.Visible = true
 		State.UI.Main.Size =
 			maximized
 			and GetVisionMenuSize(maximizedFill, 1)
 			or expandedSize
 		State.UI.Main.Position = maximized and UDim2.fromScale(0.5, 0.52) or expandedPosition
+		UI.SetWindowVisible(State.UI.Main, true)
 		task.defer(UI.ClampMovableToViewport)
 	end)
 
 	if State.UI.Maximize then
 		State.UI.Maximize.MouseButton1Click:Connect(function()
-			if maximizeTransitioning then
-				return
+			if minimized then return end
+			UI.FinishWindowMotion(State.UI.Main)
+			local wasTransitioning = maximizeTransitioning
+			if menuScaleTween then
+				Util.StopTween(State.UI.Main, true)
+				menuScaleTween = nil
+				menuScaleGeneration += 1
 			end
 
 			maximizeTransitioning = true
@@ -14786,19 +15027,21 @@ local function WireVisionGeneralUI()
 			maximizeGeneration += 1
 			local generation = maximizeGeneration
 			if maximized then
-				expandedSize = State.UI.Main.Size
-				expandedPosition = State.UI.Main.Position
+				if not wasTransitioning then
+					expandedSize = State.UI.Main.Size
+					expandedPosition = State.UI.Main.Position
+				end
 				setMaximizeConstraint()
 				Util.Tween(State.UI.Main, {
 					Position = UDim2.fromScale(0.5, 0.52),
 					Size = GetVisionMenuSize(maximizedFill, 1),
-				}, 0.16)
+				}, 0.20)
 				State.UI.Maximize.Text = "="
 				if State.UI.ResizeHandle then
 					State.UI.ResizeHandle.Visible = false
 				end
 
-				task.delay(0.18, function()
+				task.delay(0.22, function()
 					if generation == maximizeGeneration then
 						maximizeTransitioning = false
 					end
@@ -14807,13 +15050,13 @@ local function WireVisionGeneralUI()
 				Util.Tween(State.UI.Main, {
 					Position = expandedPosition,
 					Size = expandedSize,
-				}, 0.16)
+				}, 0.20)
 				State.UI.Maximize.Text = "+"
 				if State.UI.ResizeHandle then
 					State.UI.ResizeHandle.Visible = true
 				end
 
-				task.delay(0.18, function()
+				task.delay(0.22, function()
 					if Runtime.Alive
 						and not maximized
 						and generation == maximizeGeneration then
@@ -14912,7 +15155,7 @@ local function WireVisionGeneralUI()
 	end
 
 	State.UI.HeaderDragArea.InputBegan:Connect(function(input)
-		if maximized then
+		if maximized or minimized then
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.Touch
@@ -14921,6 +15164,7 @@ local function WireVisionGeneralUI()
 				return
 			end
 
+			settleWindow()
 			drag.Menu = true
 			drag.MenuInput = input
 			drag.MenuStart = input.Position
@@ -14950,6 +15194,7 @@ local function WireVisionGeneralUI()
 				menuScaleTween = nil
 			end
 
+			settleWindow()
 			drag.Resize = true
 			drag.ResizeInput = input
 			drag.ResizeStart = input.Position
@@ -14966,6 +15211,7 @@ local function WireVisionGeneralUI()
 				return
 			end
 
+			UI.FinishWindowMotion(State.UI.CompactBar)
 			drag.Compact = true
 			drag.CompactInput = input
 			drag.CompactStart = input.Position
@@ -15201,6 +15447,9 @@ local function WireVisionGeneralUI()
 			return
 		end
 
+		settleWindow()
+		UI.FinishWindowMotion(State.UI.CompactBar)
+		UI.FinishPageTransition()
 		setMaximizeConstraint()
 
 		local targetSize
@@ -16084,6 +16333,7 @@ function Runtime.Cleanup()
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(false) end
 	UI.CloseHelpDialog()
 	UI.CloseChoiceMenu()
+	UI.CleanupMotion()
 	Runtime.ActiveRenderPriority = nil
 	UI.ActiveSlider = nil
 	UI.ActiveSliderInput = nil
@@ -16248,5 +16498,11 @@ UI.RefreshQuick()
 ESP.RefreshAll()
 StartLoops()
 StartRender()
+UI.InitializeMotion()
+task.defer(function()
+	if Runtime.Alive and State.UI.Main and State.UI.Main.Visible then
+		UI.SetWindowVisible(State.UI.Main, true)
+	end
+end)
 
-print("[Aim Assist Pro V34.5.1 - Menu clássico e tamanho equilibrado] carregado")
+print("[VisionX V34.6.0 - Animações suaves] carregado")
