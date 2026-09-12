@@ -1,4 +1,4 @@
--- V34.4.0 — aba Armas reconstruída com seleção de arma, intensidade e valores atuais.
+-- V35.0.0 — Vision X: navegação compacta, prévia 3D e controles reorganizados.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -57,8 +57,8 @@ local MENU_LAYOUT_PRESETS = {
 	CLEAN = {
 		Label = "SÓ O MENU",
 		Description = "Mostra apenas o menu principal e a barra de estado.",
-		Left = 0.14,
-		Center = 0.86,
+		Left = 0,
+		Center = 1,
 		Right = 0,
 	},
 }
@@ -91,7 +91,7 @@ local Config = {
 	MenuCustomWidth = 0,
 	MenuCustomHeight = 0,
 	MenuSizeMode = "BALANCED",
-	MenuLayoutStyle = "BALANCED",
+	MenuLayoutStyle = "CLEAN",
 	ControlScale = 0.90,
 	MenuControlLayout = {},
 	TapSelectPlayer = false,
@@ -5142,7 +5142,7 @@ function UI.CreateHelpButton(parent, title, message, position)
 	local icon = Util.New("TextLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(20, 20),
-		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.35,
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.65,
 		BorderSizePixel = 0, Text = "?", TextColor3 = Theme.Sub,
 		Font = Enum.Font.GothamMedium, TextSize = 12, ZIndex = 26,
 	}, button)
@@ -6177,11 +6177,10 @@ function UI.CreateToggle(parent, title, description, options)
 		AutoButtonColor = false,
 	}, parent)
 
-	Util.Corner(card, 16)
-	Util.Sheen(card, 0.07)
+	Util.Corner(card, 12)
 	local stroke = Util.Stroke(
 		card,
-		Theme.BorderInner,
+		Theme.BorderSoft,
 		0.68,
 		1
 	)
@@ -6264,16 +6263,11 @@ function UI.SetToggle(control, enabled)
 		return
 	end
 
-	control.Card.BackgroundColor3 =
-		enabled
-		and Theme.CardActive
-		or Theme.Card
+	control.Card.BackgroundColor3 = Theme.Card
 
 	if control.Stroke then
 		control.Stroke.Color =
-			enabled
-			and Theme.AccentSoft
-			or Theme.BorderSoft
+			Theme.BorderSoft
 	end
 
 
@@ -6362,9 +6356,8 @@ function UI.CreateCycle(parent, title, description, options)
 		AutoButtonColor = false,
 	}, parent)
 
-	Util.Corner(card, 16)
-	Util.Sheen(card, 0.08)
-	Util.Stroke(card, Theme.BorderInner, 0.70, 1)
+	Util.Corner(card, 12)
+	Util.Stroke(card, Theme.BorderSoft, 0.70, 1)
 
 	local titleLabel = Util.New("TextLabel", {
 		Position = UDim2.fromOffset(14, 7),
@@ -6612,9 +6605,8 @@ function UI.CreateSlider(
 		BorderSizePixel = 0,
 	}, parent)
 
-	Util.Corner(card, 16)
-	Util.Sheen(card, 0.08)
-	Util.Stroke(card, Theme.BorderInner, 0.70, 1)
+	Util.Corner(card, 12)
+	Util.Stroke(card, Theme.BorderSoft, 0.70, 1)
 
 	local titleLabel = Util.FitText(Util.New("TextLabel", {
 		Position = UDim2.fromOffset(14, 8),
@@ -7037,6 +7029,111 @@ local function GetVisionMenuSize(fill, requestedScale)
 	)
 end
 
+
+-- Presentation only: the controls retain their original callbacks and state.
+function UI.VisionSurface(object)
+ for _, child in ipairs(object:GetChildren()) do
+  if child:IsA("UIGradient") then child:Destroy() end
+ end
+ object.BackgroundColor3 = Theme.Surface2
+ object.BackgroundTransparency = 0
+end
+
+function UI.AdaptVisionShell()
+ local u = State.UI
+ local header, main, footer = u.Header, u.Main, u.Footer
+ local halo = main:FindFirstChild("CrimsonHalo")
+ if halo then halo:Destroy() end
+ UI.VisionSurface(header)
+ UI.VisionSurface(footer)
+ UI.VisionSurface(header.Parent)
+ header.Size = UDim2.new(1,-6,0,40)
+ for _, item in ipairs(header:GetChildren()) do
+  if item:IsA("TextLabel") then
+   if item.Text == "VISION X" then
+    item.Position=UDim2.fromOffset(48,10); item.Size=UDim2.fromOffset(88,20)
+   elseif item.Text == "CONTROLE NO CELULAR" then item.Visible=false end
+  end
+ end
+ u.Minimize.Parent.Size=UDim2.fromOffset(96,28)
+ u.HeaderDragArea.Size=UDim2.new(1,-230,1,0)
+ u.NavHolder.Parent=header.Parent
+ u.NavHolder.Position=UDim2.fromOffset(12,46)
+ u.NavHolder.Size=UDim2.new(1,-24,0,34)
+ local grid=u.NavHolder:FindFirstChildWhichIsA("UIGridLayout")
+ grid.CellSize=UDim2.new(1/6,0,1,0); grid.CellPadding=UDim2.fromOffset(0,0)
+ for _, child in ipairs(footer:GetChildren()) do
+  if child:IsA("GuiObject") and child~=u.ResizeHandle then child:Destroy() end
+ end
+ for i,label in ipairs({u.FPSLabel,u.PingLabel}) do
+  label.Parent=footer; label.Position=UDim2.fromOffset(12+(i-1)*80,0)
+  label.Size=UDim2.new(0,76,1,0); label.ZIndex=6
+ end
+ local status=u.StatusMini
+ status.Parent=header; status.AnchorPoint=Vector2.new(1,.5)
+ status.Position=UDim2.new(1,-114,.5,0); status.Size=UDim2.fromOffset(104,24)
+ status.BackgroundColor3=Theme.Chip; status.BackgroundTransparency=0
+ status.TextXAlignment=Enum.TextXAlignment.Center; status.ZIndex=8
+ Util.Corner(status,8)
+ local hint=Util.New("TextLabel",{Position=UDim2.fromOffset(180,0),Size=UDim2.new(1,-222,1,0),
+  BackgroundTransparency=1,Text="Arraste o topo para mover • Canto para ajustar",TextColor3=Theme.Sub,
+  Font=Enum.Font.Gotham,TextSize=8,TextXAlignment=Enum.TextXAlignment.Right,TextTruncate=Enum.TextTruncate.AtEnd},footer)
+ local function resize() hint.Visible=main.AbsoluteSize.X>=600 end
+ Runtime.Track(main:GetPropertyChangedSignal("AbsoluteSize"):Connect(resize)); resize()
+ u.Content.BackgroundTransparency=1
+end
+
+function UI.VisionPreview(parent)
+ local scene=Util.New("ViewportFrame",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(23,26,33),
+  BorderSizePixel=0,Ambient=Color3.fromRGB(160,164,180),LightColor=Color3.fromRGB(240,240,255),
+  LightDirection=Vector3.new(-1,-2,-1)},parent)
+ Util.Corner(scene,12)
+ local world=Util.New("WorldModel",{},scene)
+ local camera=Util.New("Camera",{FieldOfView=48,CFrame=CFrame.new(Vector3.new(0,4,15),Vector3.new(0,2.7,0))},scene)
+ scene.CurrentCamera=camera
+ local function part(size,pos,color)
+  return Util.New("Part",{Size=size,Position=pos,Anchored=true,CanCollide=false,CanTouch=false,
+   CanQuery=false,CastShadow=false,Material=Enum.Material.SmoothPlastic,Color=color},world)
+ end
+ part(Vector3.new(26,.2,26),Vector3.new(0,-.1,0),Color3.fromRGB(42,45,55))
+ part(Vector3.new(26,10,.3),Vector3.new(0,4,-8),Color3.fromRGB(32,35,43))
+ for i=-4,4 do part(Vector3.new(.025,.02,24),Vector3.new(i*3,.02,0),Color3.fromRGB(64,67,78)) end
+ for i=-3,3 do part(Vector3.new(24,.02,.025),Vector3.new(0,.02,i*3),Color3.fromRGB(64,67,78)) end
+ part(Vector3.new(2,3,2),Vector3.new(5,1.5,-4),Color3.fromRGB(55,58,67))
+ for _,x in ipairs({0,-4.5}) do
+  local c=x==0 and Color3.fromRGB(186,84,104) or Color3.fromRGB(113,121,138)
+  part(Vector3.new(1,1,1),Vector3.new(x,4.5,0),c)
+  part(Vector3.new(1.6,2,.8),Vector3.new(x,3,0),c)
+  for _,side in ipairs({-1,1}) do
+   part(Vector3.new(.65,1.9,.7),Vector3.new(x+side*1.15,3,0),c)
+   part(Vector3.new(.7,1.9,.7),Vector3.new(x+side*.43,1.05,0),c)
+  end
+ end
+ return scene
+end
+
+function UI.VisionAimLayout(panel,left,preview,right,rail,sliders,circle)
+ local function layout()
+  local wide=panel.AbsoluteSize.X>=600
+  panel.Size=UDim2.new(1,0,0,wide and 570 or 810)
+  rail.Position=UDim2.fromOffset(12,10); rail.Size=UDim2.new(wide and .54 or 1,-24,0,136)
+  left.Position=UDim2.fromOffset(12,178); left.Size=UDim2.new(wide and .54 or 1,-24,0,164)
+  preview.Position=wide and UDim2.new(.54,8,0,12) or UDim2.fromOffset(12,352)
+  preview.Size=UDim2.new(wide and .46 or 1,-24,0,240)
+  right.Position=UDim2.fromOffset(12,wide and 360 or 608)
+  right.Size=UDim2.new(1,-24,0,190)
+  for i,control in ipairs(sliders) do
+   control.Card.Position=UDim2.fromOffset(0,(i-1)*82)
+  end
+  circle.Visible=Config.FOVEnabled and Config.ShowFOVCircle
+  local diameter=math.clamp(Config.FOV*.38,28,150)
+  circle.Size=UDim2.fromOffset(diameter,diameter)
+ end
+ Runtime.Track(panel:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout))
+ layout()
+ return layout
+end
+
 local function BuildVisionRootUI()
 	for _, name in ipairs({
 		"AimAssistProV33",
@@ -7173,7 +7270,7 @@ local function BuildVisionRootUI()
 		Name = "Main",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.52),
-		Size = GetVisionMenuSize(0.84),
+		Size = GetVisionMenuSize(0.96),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ClipsDescendants = false,
@@ -7382,8 +7479,8 @@ local function BuildVisionRootUI()
 	State.UI.Maximize = windowButton("+", 2)
 	State.UI.Close = windowButton("X", 3)
 
-	local bodyTop = 58
-	local footerHeight = 32
+	local bodyTop = 84
+	local footerHeight = 28
 	local bodyBottom = footerHeight + 6
 
 	local left = Util.New("ScrollingFrame", {
@@ -8062,6 +8159,7 @@ local function BuildVisionRootUI()
 		main:GetPropertyChangedSignal("AbsoluteSize"):
 		Connect(State.UI.UpdateResponsiveLayout)
 	)
+	UI.AdaptVisionShell()
 	task.defer(State.UI.UpdateResponsiveLayout)
 end
 
@@ -8183,11 +8281,38 @@ function UI.CreatePage(name)
 	return page
 end
 
+
+function UI.VisionNavIcon(parent,key)
+ local box=Util.New("Frame",{Name="NavIcon",Position=UDim2.new(.5,-38,0,8),Size=UDim2.fromOffset(16,16),BackgroundTransparency=1},parent)
+ local function line(x,y,w,h)
+  Util.New("Frame",{Position=UDim2.fromScale(x,y),Size=UDim2.fromScale(w,h),BackgroundColor3=Theme.Sub,BorderSizePixel=0},box)
+ end
+ if key=="MIRA" then
+  line(.45,0,.1,1);line(0,.45,1,.1)
+ elseif key=="ARMAS" then
+  line(.1,.3,.8,.2);line(.35,.5,.15,.4)
+ elseif key=="CORPO" or key=="JOGADORES" then
+  line(.35,.05,.3,.3);line(.2,.45,.6,.5)
+  if key=="JOGADORES" then line(.75,.15,.2,.25);line(.85,.5,.15,.45) end
+ elseif key=="ESP" then
+  line(0,0,1,.1);line(0,.9,1,.1);line(0,0,.1,1);line(.9,0,.1,1)
+ else
+  for i=0,2 do line(0,.15+i*.3,1,.08);line(.2+i*.2,.08+i*.3,.1,.22) end
+ end
+ local title=parent:FindFirstChild("NavTitle")
+ local function layout()
+  box.Visible=parent.AbsoluteSize.X>=90
+  title.Position=UDim2.fromOffset(box.Visible and 21 or 4,0)
+  title.Size=UDim2.new(1,box.Visible and -25 or -8,1,-5)
+ end
+ Runtime.Track(parent:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout));layout()
+end
+
 function UI.CreateNavButton(text)
 	local button = Util.New("TextButton", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Theme.Surface2,
-		BackgroundTransparency = 0.12,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Text = "",
 		TextColor3 = Theme.Sub,
@@ -8198,10 +8323,11 @@ function UI.CreateNavButton(text)
 		ZIndex = 8,
 	}, State.UI.NavHolder)
 
-	Util.Corner(button, 999)
-	Util.Sheen(button, 0.10)
+	Util.Corner(button, 8)
+	
 	local stroke = Util.Stroke(button, Theme.BorderSoft, 0.68, 1)
 	stroke.Name = "NavStroke"
+	stroke.Transparency = 1
 
 	local navGlow = Util.New("Frame", {
 		Name = "NavGlow",
@@ -8239,6 +8365,7 @@ function UI.CreateNavButton(text)
 	Util.Corner(indicator, 999)
 	UI.TouchFeedback(button)
 
+	UI.VisionNavIcon(button,text)
 	return button
 end
 
@@ -8265,7 +8392,7 @@ function UI.ShowPage(page)
 			{
 				BackgroundColor3 =
 					active and Theme.CardActive or Theme.Surface2,
-				BackgroundTransparency = active and 0.02 or 0.12,
+				BackgroundTransparency = 1,
 				TextColor3 =
 					active and Theme.Text or Theme.Sub,
 			},
@@ -8275,7 +8402,7 @@ function UI.ShowPage(page)
 		if navGlow then
 			Util.Tween(
 				navGlow,
-				{BackgroundTransparency = active and 0.36 or 1},
+				{BackgroundTransparency = 1},
 				0.14
 			)
 		end
@@ -8285,7 +8412,7 @@ function UI.ShowPage(page)
 				navStroke,
 				{
 					Color = active and Theme.Accent or Theme.BorderSoft,
-					Transparency = active and 0.12 or 0.68,
+					Transparency = 1,
 				},
 				0.12
 			)
@@ -8300,6 +8427,7 @@ function UI.ShowPage(page)
 		end
 
 		if indicator then
+			indicator.Visible = active
 			Util.Tween(
 				indicator,
 				{
@@ -8307,7 +8435,7 @@ function UI.ShowPage(page)
 						active and Theme.Accent or Theme.Muted,
 					Size =
 						active
-							and UDim2.fromOffset(27, 3)
+							and UDim2.new(.68, 0, 0, 2)
 							or UDim2.fromOffset(13, 2),
 				},
 				0.12
@@ -8422,9 +8550,8 @@ function UI.CreateRailToggle(parent, order, iconText, title, subtitle)
 		Text = "",
 		AutoButtonColor = false,
 	}, parent)
-	Util.Corner(card, 16)
-	Util.Sheen(card, 0.06)
-	local stroke = Util.Stroke(card, Theme.BorderInner, 0.70, 1)
+	Util.Corner(card, 12)
+	local stroke = Util.Stroke(card, Theme.BorderSoft, 0.70, 1)
 
 
 	local marker = Util.New("Frame", {
@@ -8500,9 +8627,9 @@ function UI.SetRailToggle(control, enabled)
 		return
 	end
 
-	control.Card.BackgroundColor3 = enabled and Theme.CardActive or Theme.Card
-	control.Stroke.Color = enabled and Theme.Accent or Theme.BorderSoft
-	control.Stroke.Transparency = enabled and 0.20 or 0.52
+	control.Card.BackgroundColor3 = Theme.Surface2
+	control.Stroke.Color = Theme.BorderSoft
+	control.Stroke.Transparency = 0.65
 	control.Status.Text = enabled and "ATIVADO" or "DESATIVADO"
 	control.Status.TextColor3 = enabled and Theme.Accent2 or Theme.Sub
 	if control.Marker then
@@ -9134,8 +9261,8 @@ function Pages.BuildVisionAim()
 
 	UI.Section(
 		page,
-		"AJUSTES PRINCIPAIS",
-		"Mira liga a ajuda. Manter alvo evita trocas. Ajuste o restante abaixo."
+		"MIRA",
+		"Ajuste a assistência do seu jeito."
 	)
 
 	controls.RailAim = UI.CreateRailToggle(
@@ -9366,21 +9493,33 @@ function Pages.BuildVisionAim()
 		Dot = fovDot,
 	}
 
-	local aimHelp = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(10, 272),
-		Size = UDim2.new(1, -20, 0, 24),
-		BackgroundColor3 = Theme.Chip,
-		BackgroundTransparency = 0.18,
-		BorderSizePixel = 0,
-		Text = "FOV maior procura mais longe. Precisão alta corrige mais. Suavidade alta deixa o movimento mais leve.",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-	}, aimPanel)
-	Util.Corner(aimHelp, 999)
-	Util.Stroke(aimHelp, Theme.BorderSoft, 0.72, 1)
-	Util.FitText(aimHelp, 6, 8)
 
+ -- Reuse every existing control; only its placement changes.
+ UI.VisionSurface(aimPanel)
+ for _,item in ipairs(aimPanel:GetChildren()) do
+  if item:IsA("TextLabel") then item.Visible=false end
+ end
+ local rail=Util.New("Frame",{BackgroundTransparency=1},aimPanel)
+ for i,c in ipairs({controls.RailAim,controls.RailLock,controls.RailESP}) do
+  c.Card.Parent=rail; c.Card.Position=UDim2.fromOffset(0,(i-1)*46)
+  c.Card.Size=UDim2.new(1,0,0,40); c.Marker.Visible=false
+ end
+ UI.SettingsText(aimPanel,"Controle",UDim2.fromOffset(12,151),UDim2.new(.5,-24,0,20),12,Theme.Text,Enum.Font.GothamBold)
+ controls.FOVSlider.Card.Parent=fovColumn
+ controls.FOVSlider.Card.Position=UDim2.fromOffset(0,162)
+ local scene=UI.VisionPreview(fovColumn)
+ scene.Size=UDim2.new(1,0,0,154)
+ fovCircle.Parent=scene; fovCircle.Position=UDim2.fromScale(.5,.5)
+ for _,child in ipairs(fovCircle:GetChildren()) do
+  if child:IsA("UIGradient") or child:IsA("UISizeConstraint") or child:IsA("UIAspectRatioConstraint") then child:Destroy() end
+ end
+ fovCircle.BackgroundTransparency=1
+ for i,c in ipairs({controls.Mode,controls.Wall,controls.Priority,controls.FOVStyle,controls.FOVVisibility}) do
+  c.Card.Position=UDim2.new((i-1)%2*.5,0,0,math.floor((i-1)/2)*60)
+  c.Card.Size=UDim2.new(.5,-8,0,52)
+ end
+ controls.Layout=UI.VisionAimLayout(aimPanel,sliderColumn,fovColumn,optionColumn,rail,
+  {controls.Accuracy,controls.Smoothing},fovCircle)
 	local presetsPanel = Util.New("Frame", {
 		Size = UDim2.new(1, 0, 0, 210),
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -9635,6 +9774,7 @@ function Pages.BuildVisionAim()
 	UI.TouchFeedback(controls.Apply)
 
 	function controls.Refresh()
+		controls.Layout()
 		UI.SetRailToggle(controls.RailAim, Config.AimEnabled)
 		UI.SetRailToggle(controls.RailLock, Config.StickyTarget)
 		UI.SetRailToggle(controls.RailESP, Config.ESPEnabled)
@@ -16220,4 +16360,4 @@ ESP.RefreshAll()
 StartLoops()
 StartRender()
 
-print("[Aim Assist Pro V34.4.0 - Armas e intensidade] carregado")
+print("[Aim Assist Pro V35.0.0 - Vision X] carregado")
