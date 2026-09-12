@@ -1,4 +1,4 @@
--- V34.4.0 — aba Armas reconstruída com seleção de arma, intensidade e valores atuais.
+-- V34.5.0 — menu clássico com mais espaço, textos legíveis e rolagem completa nas abas.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -5405,9 +5405,9 @@ function UI.ApplyControlScale(value)
 	for _, entry in ipairs(UI.ScalableControls) do
 		local card = entry.Card
 		if card and card.Parent then
-			local height = math.floor(
+			local height = math.max(entry.MinimumHeight or 0, math.floor(
 				entry.BaseHeight * Config.ControlScale + 0.5
-			)
+			))
 			card.Size = UDim2.new(
 				card.Size.X.Scale,
 				card.Size.X.Offset,
@@ -7173,7 +7173,7 @@ local function BuildVisionRootUI()
 		Name = "Main",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.52),
-		Size = GetVisionMenuSize(0.84),
+		Size = GetVisionMenuSize(0.94),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ClipsDescendants = false,
@@ -7424,8 +7424,8 @@ local function BuildVisionRootUI()
 	Util.InnerHighlight(center, 14, 0.90, 5)
 
 	State.UI.PageHost = Util.New("Frame", {
-		Position = UDim2.fromOffset(12, 11),
-		Size = UDim2.new(1, -24, 1, -22),
+		Position = UDim2.fromOffset(8, 7),
+		Size = UDim2.new(1, -16, 1, -14),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 5,
@@ -9900,6 +9900,16 @@ function UI.CreateWeaponGlyph(parent, key)
 	return {Box = box, Parts = parts}
 end
 
+function UI.SetReadableText(label, size, height)
+ if not label then return end
+ label.TextScaled = false
+ label.TextSize = size
+ for _, item in ipairs(label:GetChildren()) do
+  if item:IsA("UITextSizeConstraint") then item.MinTextSize = size; item.MaxTextSize = size end
+ end
+ if height then label.Size = UDim2.new(label.Size.X.Scale, label.Size.X.Offset, 0, height) end
+end
+
 function UI.CreateArmChoice(parent, label, description, weaponKey, level)
 	local card = Util.New("TextButton", {
 		BackgroundColor3 = Theme.Card, BackgroundTransparency = .10, BorderSizePixel = 0,
@@ -9908,12 +9918,12 @@ function UI.CreateArmChoice(parent, label, description, weaponKey, level)
 	Util.Corner(card, 12)
 	local control = {Card = card, Stroke = Util.Stroke(card, Theme.BorderSoft, .7, 1)}
 	local titleX = weaponKey and 50 or 14
-	control.Title = UI.SettingsText(card, label, UDim2.fromOffset(titleX, 12), UDim2.new(1, -(titleX + 32), 0, 19), 10, Theme.Text, true)
-	Util.FitText(control.Title, 8, 11)
-	control.Description = UI.SettingsText(card, description, UDim2.fromOffset(14, weaponKey and 47 or 38), UDim2.new(1, -28, 0, 27), 8, Theme.Sub)
+	control.Title = UI.SettingsText(card, label, UDim2.fromOffset(titleX, 13), UDim2.new(1, -(titleX + 32), 0, 22), 12, Theme.Text, true)
+	UI.SetReadableText(control.Title, 12)
+	control.Description = UI.SettingsText(card, description, UDim2.fromOffset(14, weaponKey and 52 or 40), UDim2.new(1, -28, 0, 30), 10, Theme.Sub)
 	control.Description.TextWrapped = true
 	control.Description.TextTruncate = Enum.TextTruncate.None
-	Util.FitText(control.Description, 7, 9)
+	UI.SetReadableText(control.Description, 10)
 	control.Radio = Util.New("Frame", {
 		Position = UDim2.new(1, -25, 0, 15), Size = UDim2.fromOffset(12, 12),
 		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .1, BorderSizePixel = 0,
@@ -9927,7 +9937,7 @@ function UI.CreateArmChoice(parent, label, description, weaponKey, level)
 	Util.Corner(control.Check, 999)
 	if weaponKey then
 		control.Glyph = UI.CreateWeaponGlyph(card, weaponKey)
-		control.Glyph.Box.Position = UDim2.fromOffset(12, 8)
+		control.Glyph.Box.Position = UDim2.fromOffset(12, 11)
 	end
 	if level then
 		control.LevelDots = {}
@@ -9962,9 +9972,9 @@ end
 function Pages.BuildAssistant()
 	local page = UI.CreatePage("Assistant")
 	page:SetAttribute("AAPHideScrollCue", true)
-	page.Position = UDim2.fromOffset(3, 91)
-	page.Size = UDim2.new(1, -6, 1, -94)
-	page.ScrollBarThickness = 3
+	page.Position = UDim2.fromOffset(3, 3)
+	page.Size = UDim2.new(1, -6, 1, -6)
+	page.ScrollBarThickness = 5
 	local definition = Persistence.DefaultConfig.AimAssistant
 	local controls = {WeaponCards = {}, ModeCards = {}, Metrics = {}, Scroll = {}, Active = "WEAPON", Generation = 0}
 	local weaponText = {
@@ -9984,23 +9994,21 @@ function Pages.BuildAssistant()
 		MAXIMUM = {"Máximo", "Correção máxima e resposta imediata."},
 	}
 	local toolbar = Util.New("Frame", {
-		Name = "AAP_ArmsToolbar", Position = UDim2.fromOffset(7, 4), Size = UDim2.new(1, -22, 0, 80),
+		Name = "AAP_ArmsToolbar", LayoutOrder = -100, Size = UDim2.new(1, 0, 0, 76),
 		BackgroundTransparency = 1, Visible = page.Visible,
-	}, page.Parent)
+	}, page)
 	controls.Toolbar = toolbar
-	local title = UI.SettingsText(toolbar, "Mira por arma", UDim2.fromOffset(2, 0), UDim2.new(1, -140, 0, 22), 12, Theme.Text, true)
-	Util.FitText(title, 8, 13)
-	controls.StatusChip = UI.SettingsText(toolbar, "", UDim2.new(1, -133, 0, 1), UDim2.fromOffset(96, 21), 8, Theme.Sub, true)
+	controls.StatusChip = UI.SettingsText(toolbar, "", UDim2.new(1, -141, 0, 2), UDim2.fromOffset(104, 24), 10, Theme.Sub, true)
 	controls.StatusChip.BackgroundColor3 = Theme.Surface3
 	controls.StatusChip.BackgroundTransparency = .2
 	controls.StatusChip.TextXAlignment = Enum.TextXAlignment.Center
 	Util.Corner(controls.StatusChip, 999)
 	controls.Help = UI.CreateHelpButton(toolbar, "Ajustar a mira por arma",
 		"Escolha a arma mais parecida com a sua e a intensidade da assistência. Cada toque aplica a combinação imediatamente.\n\nO ajuste inclui FOV, precisão, suavidade, previsão, parte do corpo e checagem de paredes. Para alterar um valor separadamente, use Mira ou Corpo.", UDim2.new(1, 0, 0, -3))
-	controls.Summary = UI.SettingsText(toolbar, "", UDim2.fromOffset(2, 27), UDim2.new(1, -4, 0, 18), 10, Theme.Sub)
-	Util.FitText(controls.Summary, 8, 11)
+	controls.Summary = UI.SettingsText(toolbar, "", UDim2.fromOffset(2, 1), UDim2.new(1, -152, 0, 26), 12, Theme.Sub)
+	UI.SetReadableText(controls.Summary, 12)
 	local navigation = Util.New("Frame", {
-		Position = UDim2.fromOffset(0, 53), Size = UDim2.new(1, 0, 0, 27),
+		Position = UDim2.fromOffset(0, 36), Size = UDim2.new(1, 0, 0, 38),
 		BackgroundColor3 = Theme.Surface2, BackgroundTransparency = .10, BorderSizePixel = 0,
 	}, toolbar)
 	Util.Corner(navigation, 10)
@@ -10009,27 +10017,24 @@ function Pages.BuildAssistant()
 		local button = Util.New("TextButton", {
 			Position = UDim2.new((index - 1) * .5, 2, 0, 2), Size = UDim2.new(.5, -4, 1, -4),
 			BackgroundColor3 = Theme.CardActive, BorderSizePixel = 0, Text = data[2], TextColor3 = Theme.Text,
-			Font = Enum.Font.GothamMedium, TextSize = 9, AutoButtonColor = false,
+			Font = Enum.Font.GothamMedium, TextSize = 11, AutoButtonColor = false,
 		}, navigation)
 		Util.Corner(button, 9)
 		controls.Tabs[data[1]] = button
 		UI.TouchFeedback(button)
 		button.Activated:Connect(function() controls.Show(data[1]) end)
 	end
-	local function pane(name, heading, description)
+	local function pane(name)
 		local holder = Util.New("Frame", {
 			Name = name, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1, Visible = false, LayoutOrder = 10,
 		}, page)
 		Util.New("UIListLayout", {Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder}, holder)
-		local intro = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = 1}, holder)
-		UI.SettingsText(intro, heading, UDim2.fromOffset(2, 0), UDim2.new(1, -4, 0, 18), 10, Theme.Text, true)
-		Util.FitText(UI.SettingsText(intro, description, UDim2.fromOffset(2, 23), UDim2.new(1, -4, 0, 14), 8, Theme.Sub), 7, 9)
 		local grid = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, LayoutOrder = 2}, holder)
 		return holder, grid
 	end
-	controls.WeaponPane, controls.WeaponGrid = pane("AAP_WeaponChoices", "Qual arma você está usando?", "Toque para aplicar os ajustes desse tipo de arma.")
-	controls.ModePane, controls.ModeGrid = pane("AAP_IntensityChoices", "Quanto a mira deve ajudar?", "A intensidade também muda a velocidade da resposta.")
+	controls.WeaponPane, controls.WeaponGrid = pane("AAP_WeaponChoices")
+	controls.ModePane, controls.ModeGrid = pane("AAP_IntensityChoices")
 	local values, detailsGroup = UI.CreateExpandableGroup(page, "Ver ajustes atuais", "Veja o que está em uso.", false)
 	detailsGroup.Shell.LayoutOrder = 20
 	controls.DetailsGroup = detailsGroup
@@ -10089,18 +10094,23 @@ function Pages.BuildAssistant()
 		control.Card.Activated:Connect(function() controls.Apply(Config.AimAssistant.Weapon, key) end)
 	end
 	function controls.Layout()
+        local narrowHeader = toolbar.AbsoluteSize.X < 330
+        toolbar.Size = UDim2.new(1, 0, 0, narrowHeader and 106 or 76)
+        controls.Summary.Size = UDim2.new(1, narrowHeader and -38 or -152, 0, 26)
+        controls.StatusChip.Position = narrowHeader and UDim2.fromOffset(2, 31) or UDim2.new(1, -141, 0, 2)
+        navigation.Position = UDim2.fromOffset(0, narrowHeader and 66 or 36)
 		local function gridLayout(holder, order, cards, mode)
 			local width = holder.AbsoluteSize.X
-			local columns = width >= (mode and 420 or 350) and 2 or 1
-			if not mode and width >= 660 then columns = 3 end
-			local height = math.max(math.floor((mode and 98 or 92) * Config.ControlScale + .5), mode and 86 or 80)
+			local columns = width >= 520 and 2 or 1
+			if not mode and width >= 850 then columns = 3 end
+			local height = math.max(math.floor((mode and 108 or 104) * Config.ControlScale + .5), mode and 98 or 94)
 			for index, key in ipairs(order) do
 				local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
 				local card = cards[key].Card
-				card.Position = UDim2.new(column / columns, 8 * column / columns, 0, row * (height + 8))
-				card.Size = UDim2.new(1 / columns, -8 * (columns - 1) / columns, 0, height)
+				card.Position = UDim2.new(column / columns, 12 * column / columns, 0, row * (height + 12))
+				card.Size = UDim2.new(1 / columns, -12 * (columns - 1) / columns, 0, height)
 			end
-			holder.Size = UDim2.new(1, 0, 0, math.ceil(#order / columns) * (height + 8) - 8)
+			holder.Size = UDim2.new(1, 0, 0, math.ceil(#order / columns) * (height + 12) - 12)
 		end
 		gridLayout(controls.WeaponGrid, definition.WeaponOrder, controls.WeaponCards, false)
 		gridLayout(controls.ModeGrid, definition.ModeOrder, controls.ModeCards, true)
@@ -11729,7 +11739,7 @@ function UI.SettingsGroup(parent, title, subtitle, id)
 		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1, BorderSizePixel = 0,
 	}, shell)
-	Util.New("UIListLayout", {Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder}, content)
+	Util.New("UIListLayout", {Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder}, content)
 	if id then UI.RegisterOrganizerContainer(content, id) end
 	return content, shell
 end
@@ -11737,58 +11747,72 @@ end
 function UI.StyleSettingsControl(control)
 	local card = control.Card
 	local cycle = typeof(control.Value) == "Instance"
-	local baseHeight = cycle and 104 or control.Switch and 82 or 104
+	local baseHeight = cycle and 128 or control.Switch and 120 or 176
+	local minimumHeight = cycle and 114 or control.Switch and 108 or 156
 	local slot = control.Record and control.Record.Card or card
 	for _, entry in ipairs(UI.ScalableControls) do
-		if entry.Card == slot then entry.BaseHeight = baseHeight; break end
+		if entry.Card == slot then entry.BaseHeight = baseHeight; entry.MinimumHeight = minimumHeight; break end
 	end
-	slot.Size = UDim2.new(slot.Size.X.Scale, slot.Size.X.Offset, 0, math.floor(baseHeight * Config.ControlScale + .5))
+	slot.Size = UDim2.new(slot.Size.X.Scale, slot.Size.X.Offset, 0, math.max(minimumHeight, math.floor(baseHeight * Config.ControlScale + .5)))
 	if control.Record then control.Record.OriginalSize = slot.Size end
 	card.BackgroundTransparency = 0.12
 	if control.Title then
 		control.Title.Font = Enum.Font.GothamMedium
+        UI.SetReadableText(control.Title, 11, 22)
 	end
 	if cycle then
-		control.Title.Size = UDim2.new(1, control.Help and -54 or -28, 0, 18)
+		control.Title.Size = UDim2.new(1, control.Help and -54 or -28, 0, 22)
 		control.Title.Position = UDim2.fromOffset(14, 8)
-		Util.FitText(control.Title, 8, 11)
-		control.Description.Position = UDim2.fromOffset(14, 30)
-		control.Description.Size = UDim2.new(1, -28, 0, 18)
+		UI.SetReadableText(control.Title, 11)
+		control.Description.Position = UDim2.fromOffset(14, 36)
+		control.Description.Size = UDim2.new(1, -28, 0, 34)
 		control.Value.AnchorPoint = Vector2.new(0, 1)
 		control.Value.Position = UDim2.new(0, 14, 1, -8)
-		control.Value.Size = UDim2.new(1, -28, 0, 26)
+		control.Value.Size = UDim2.new(1, -28, 0, 30)
 		control.Value.BackgroundColor3 = Theme.Surface3
 		control.Value.TextColor3 = Theme.Accent2
-		Util.FitText(control.Value, 8, 10)
+		UI.SetReadableText(control.Value, 11)
 		if control.Help then control.Help.Position = UDim2.new(1, -10, 0, 3) end
-	else
-		control.Description.Size = UDim2.new(1, -28, 0, control.Switch and 25 or 18)
-	end
+	elseif control.Switch then
+        control.Title.Size = UDim2.new(1, control.Help and -116 or -86, 0, 40)
+        control.Title.TextWrapped = true
+        control.Description.Position = UDim2.fromOffset(14, 54)
+        control.Description.Size = UDim2.new(1, -28, 0, 38)
+    else
+        control.Title.Size = UDim2.new(1, control.Help and -54 or -28, 0, 22)
+        control.Description.Position = UDim2.fromOffset(14, 36)
+        control.Description.Size = UDim2.new(1, -28, 0, 36)
+        control.Label.Position = UDim2.new(1, -14, 0, 82)
+        control.Label.Size = UDim2.fromOffset(84, 30)
+        if control.Help then control.Help.Position = UDim2.new(1, -10, 0, 3) end
+    end
+    UI.SetReadableText(control.Description, 10)
+    control.Description.TextWrapped = true
 end
 
 function UI.CreateSettingsWorkspace(page)
 	local view = {Page = page, Categories = {}, Tiles = {}, Entries = {}, Scroll = {}, Active = "HOME", Display = "HOME", Generation = 0, LastSearchText = ""}
 	page:SetAttribute("AAPHideScrollCue", true)
-	page.Position = UDim2.fromOffset(3, 77)
-	page.Size = UDim2.new(1, -6, 1, -80)
-	page.ScrollBarThickness = 3
+	page.Position = UDim2.fromOffset(3, 3)
+	page.Size = UDim2.new(1, -6, 1, -6)
+	page.ScrollBarThickness = 5
 	local toolbar = Util.New("Frame", {
-		Name = "AAP_SettingsToolbar", Position = UDim2.fromOffset(7, 4),
-		Size = UDim2.new(1, -22, 0, 66), BackgroundTransparency = 1,
+		Name = "AAP_SettingsToolbar", LayoutOrder = -100,
+		Size = UDim2.new(1, 0, 0, 76), BackgroundTransparency = 1,
 		Visible = page.Visible,
-	}, page.Parent)
+	}, page)
 	view.Toolbar = toolbar
 	view.Back = Util.New("TextButton", {
-		Size = UDim2.fromOffset(66, 27), BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .25,
+		Size = UDim2.fromOffset(70, 30), BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .25,
 		BorderSizePixel = 0, Text = "‹  Início", TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium,
-		TextSize = 9, AutoButtonColor = false, Visible = false,
+		TextSize = 11, AutoButtonColor = false, Visible = false,
 	}, toolbar)
 	Util.Corner(view.Back, 10)
 	UI.TouchFeedback(view.Back)
 	view.Title = UI.SettingsText(toolbar, "Configurações", UDim2.fromOffset(2, 2), UDim2.new(1, -4, 0, 24), 13, Theme.Text, true)
-	Util.FitText(view.Title, 10, 14)
+	UI.SetReadableText(view.Title, 14)
 	local searchBox = Util.New("Frame", {
-		Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.fromOffset(0, 38), Size = UDim2.new(1, 0, 0, 36),
 		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .3, BorderSizePixel = 0,
 	}, toolbar)
 	Util.Corner(searchBox, 10)
@@ -11796,11 +11820,11 @@ function UI.CreateSettingsWorkspace(page)
 	view.Search = Util.New("TextBox", {
 		Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -46, 1, 0), BackgroundTransparency = 1,
 		Text = "", PlaceholderText = "Buscar ajuste...", PlaceholderColor3 = Theme.Sub,
-		TextColor3 = Theme.Text, Font = Enum.Font.Gotham, TextSize = 9,
+		TextColor3 = Theme.Text, Font = Enum.Font.Gotham, TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, MultiLine = false,
 	}, searchBox)
 	view.Clear = Util.New("TextButton", {
-		Position = UDim2.new(1, -32, 0, 0), Size = UDim2.fromOffset(32, 30), BackgroundTransparency = 1,
+		Position = UDim2.new(1, -32, 0, 0), Size = UDim2.fromOffset(32, 36), BackgroundTransparency = 1,
 		Text = "×", TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 14,
 		Visible = false, AutoButtonColor = false,
 	}, searchBox)
@@ -11824,7 +11848,7 @@ function UI.CreateSettingsWorkspace(page)
 	for _, definition in ipairs(definitions) do view:AddCategory(definition.Key) end
 	local summary = Util.New("Frame", {
 		Name = "AAP_SettingsSummary", Size = UDim2.new(1, 0, 0, 88),
-		BackgroundColor3 = Theme.CardActive, BackgroundTransparency = .13, BorderSizePixel = 0, LayoutOrder = -10,
+		BackgroundColor3 = Theme.CardActive, BackgroundTransparency = .13, BorderSizePixel = 0, LayoutOrder = 20,
 	}, home)
 	Util.Corner(summary, 14)
 	Util.Stroke(summary, Theme.AccentSoft, .45, 1)
@@ -11875,10 +11899,13 @@ function UI.CreateSettingsWorkspace(page)
 		local glyph = UI.SettingsGlyph(card, definition.Key, 28)
 		glyph.Position = UDim2.fromOffset(12, 12)
 		local title = UI.SettingsText(card, definition.Label, UDim2.fromOffset(49, 15), UDim2.new(1, -61, 0, 18), 10, Theme.Text, true)
-		Util.FitText(title, 8, 11)
-		UI.SettingsText(card, definition.Detail, UDim2.fromOffset(12, 50), UDim2.new(1, -24, 0, 16), 8, Theme.Sub)
-		local state = UI.SettingsText(card, "", UDim2.fromOffset(12, 77), UDim2.new(1, -40, 0, 14), 8, Theme.Accent2)
-		UI.SettingsText(card, "›", UDim2.new(1, -24, 0, 74), UDim2.fromOffset(16, 18), 14, Theme.Sub)
+		UI.SetReadableText(title, 12)
+		local detail = UI.SettingsText(card, definition.Detail, UDim2.fromOffset(12, 48), UDim2.new(1, -24, 0, 30), 10, Theme.Sub)
+        detail.TextWrapped = true
+        detail.TextTruncate = Enum.TextTruncate.None
+        UI.SetReadableText(detail, 10)
+		local state = UI.SettingsText(card, "", UDim2.fromOffset(12, 88), UDim2.new(1, -40, 0, 18), 10, Theme.Accent2)
+		UI.SettingsText(card, "›", UDim2.new(1, -24, 0, 86), UDim2.fromOffset(16, 18), 14, Theme.Sub)
 		view.Tiles[definition.Key] = {Card = card, State = state}
 		UI.TouchFeedback(card)
 		card.Activated:Connect(function() view.Show(definition.Key, false) end)
@@ -12005,14 +12032,14 @@ function UI.CreateSettingsWorkspace(page)
 		if not page.Visible then view.Search:ReleaseFocus(false) end
 	end)
 	local function layoutTiles()
-		local columns = tiles.AbsoluteSize.X >= 350 and 2 or 1
+		local columns = tiles.AbsoluteSize.X >= 520 and 2 or 1
 		for index, definition in ipairs(definitions) do
 			local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
 			local card = view.Tiles[definition.Key].Card
-			card.Position = UDim2.new(column / columns, column == 0 and 0 or 4, 0, row * 112)
-			card.Size = UDim2.new(1 / columns, columns == 1 and 0 or -4, 0, 104)
+			card.Position = UDim2.new(column / columns, column == 0 and 0 or 6, 0, row * 132)
+			card.Size = UDim2.new(1 / columns, columns == 1 and 0 or -6, 0, 120)
 		end
-		tiles.Size = UDim2.new(1, 0, 0, math.ceil(#definitions / columns) * 112 - 8)
+		tiles.Size = UDim2.new(1, 0, 0, math.ceil(#definitions / columns) * 132 - 12)
 		local compact = summary.AbsoluteSize.X < 300
 		preview.Visible = not compact
 		view.SummaryTitle.Size = UDim2.new(1, compact and -28 or -145, 0, 18)
@@ -13146,38 +13173,38 @@ function UI.TogglePlayerFocus(player)
 end
 
 function UI.LayoutPlayerEntry(entry, width)
-	local narrow = width < 360
-	entry.Card.Size = UDim2.new(1, 0, 0, narrow and 104 or 74)
-	entry.Avatar.Position = UDim2.fromOffset(10, narrow and 10 or 17)
-	local textRight = narrow and -70 or -230
-	entry.Name.Size = UDim2.new(1, textRight, 0, 17)
-	entry.Username.Size = UDim2.new(1, textRight, 0, 14)
-	entry.Detail.Size = UDim2.new(1, textRight, 0, 14)
+	local narrow = width < 540
+	entry.Card.Size = UDim2.new(1, 0, 0, narrow and 128 or 88)
+	entry.Avatar.Position = UDim2.fromOffset(10, narrow and 12 or 24)
+	local textRight = narrow and -76 or -262
+	entry.Name.Size = UDim2.new(1, textRight, 0, 21)
+	entry.Username.Size = UDim2.new(1, textRight, 0, 17)
+	entry.Detail.Size = UDim2.new(1, textRight, 0, 17)
 	if narrow then
-		entry.Focus.Position = UDim2.fromOffset(10, 65)
-		entry.Focus.Size = UDim2.new(0.5, -14, 0, 30)
-		entry.Protect.Position = UDim2.new(0.5, 4, 0, 65)
-		entry.Protect.Size = UDim2.new(0.5, -14, 0, 30)
+		entry.Focus.Position = UDim2.fromOffset(12, 80)
+		entry.Focus.Size = UDim2.new(0.5, -18, 0, 36)
+		entry.Protect.Position = UDim2.new(0.5, 6, 0, 80)
+		entry.Protect.Size = UDim2.new(0.5, -18, 0, 36)
 	else
-		entry.Focus.Position = UDim2.new(1, -160, 0, 21)
-		entry.Focus.Size = UDim2.fromOffset(68, 32)
-		entry.Protect.Position = UDim2.new(1, -84, 0, 21)
-		entry.Protect.Size = UDim2.fromOffset(74, 32)
+		entry.Focus.Position = UDim2.new(1, -184, 0, 26)
+		entry.Focus.Size = UDim2.fromOffset(78, 36)
+		entry.Protect.Position = UDim2.new(1, -98, 0, 26)
+		entry.Protect.Size = UDim2.fromOffset(86, 36)
 	end
 end
 
 function Pages.BuildPlayers()
 	local page = UI.CreatePage("Players")
 	page:SetAttribute("AAPHideScrollCue", true)
-	page.Position = UDim2.fromOffset(3, 79)
-	page.Size = UDim2.new(1, -6, 1, -82)
-	page.ScrollBarThickness = 3
+	page.Position = UDim2.fromOffset(3, 3)
+	page.Size = UDim2.new(1, -6, 1, -6)
+	page.ScrollBarThickness = 5
 	local controls = {Entries = {}, Filter = "ALL", Query = "", SearchGeneration = 0}
 	local toolbar = Util.New("Frame", {
-		Name = "AAP_PlayerToolbar", Position = UDim2.fromOffset(7, 5),
-		Size = UDim2.new(1, -22, 0, 68), BackgroundTransparency = 1,
+		Name = "AAP_PlayerToolbar", LayoutOrder = -100,
+		Size = UDim2.new(1, 0, 0, 78), BackgroundTransparency = 1,
 		BorderSizePixel = 0, Visible = page.Visible,
-	}, page.Parent)
+	}, page)
 	controls.Toolbar = toolbar
 	local searchCard = Util.New("Frame", {
 		Name = "AAP_PlayerSearch", Size = UDim2.new(1, -144, 0, 30),
@@ -13194,13 +13221,13 @@ function Pages.BuildPlayers()
 	}, searchCard)
 	controls.Clear = Util.New("TextButton", {
 		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0),
-		Size = UDim2.fromOffset(30, 30), BackgroundTransparency = 1, Text = "×",
+		Size = UDim2.fromOffset(30, 36), BackgroundTransparency = 1, Text = "×",
 		TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 14,
 		AutoButtonColor = false, Visible = false,
 	}, searchCard)
 	controls.TapSelect = Util.New("TextButton", {
 		Name = "AAP_PlayerTapSelect", Position = UDim2.new(1, -136, 0, 0),
-		Size = UDim2.fromOffset(104, 30), BackgroundColor3 = Theme.Card,
+		Size = UDim2.fromOffset(132, 36), BackgroundColor3 = Theme.Card,
 		BackgroundTransparency = 0.15, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
 	}, toolbar)
 	Util.Corner(controls.TapSelect, 10)
@@ -13208,8 +13235,8 @@ function Pages.BuildPlayers()
 	Util.FitText(Util.New("TextLabel", {
 		Position = UDim2.fromOffset(7, 0), Size = UDim2.new(1, -42, 1, 0),
 		BackgroundTransparency = 1, Text = "Toque no jogo", TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamMedium, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left,
-	}, controls.TapSelect), 7, 8)
+		Font = Enum.Font.GothamMedium, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+	}, controls.TapSelect), 10, 10)
 	controls.TapSwitch = Util.New("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -7, 0.5, 0),
 		Size = UDim2.fromOffset(26, 16), BackgroundColor3 = Theme.Chip, BorderSizePixel = 0,
@@ -13226,7 +13253,7 @@ function Pages.BuildPlayers()
 		UDim2.new(1, 0, 0, 1))
 	local filters = Util.New("Frame", {
 		Name = "AAP_PlayerFilters", Position = UDim2.fromOffset(0, 39),
-		Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Theme.Surface2,
+		Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = Theme.Surface2,
 		BackgroundTransparency = 0.1, BorderSizePixel = 0,
 	}, toolbar)
 	Util.Corner(filters, 10)
@@ -13240,7 +13267,7 @@ function Pages.BuildPlayers()
 			Font = Enum.Font.GothamMedium, TextSize = 8, AutoButtonColor = false,
 		}, filters)
 		Util.Corner(button, 8)
-		Util.FitText(button, 7, 9)
+		Util.FitText(button, 10, 10)
 		controls.Filters[data[1]] = button
 		UI.TouchFeedback(button)
 		button.Activated:Connect(function()
@@ -13255,7 +13282,7 @@ function Pages.BuildPlayers()
 		AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1,
 	}, page)
 	Util.New("UIListLayout", {
-		Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder,
 	}, controls.Container)
 	controls.Empty = Util.New("Frame", {
 		Size = UDim2.new(1, 0, 0, 92), BackgroundColor3 = Theme.Card,
@@ -13289,17 +13316,17 @@ function Pages.BuildPlayers()
 		entry.Name = Util.New("TextLabel", {
 			Position = UDim2.fromOffset(60, 10), BackgroundTransparency = 1,
 			Text = player.DisplayName, TextColor3 = Theme.Text, TextTruncate = Enum.TextTruncate.AtEnd,
-			Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
+			Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
 		}, entry.Card)
 		entry.Username = Util.New("TextLabel", {
-			Position = UDim2.fromOffset(60, 29), BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(60, 34), BackgroundTransparency = 1,
 			Text = "@" .. player.Name, TextColor3 = Theme.Sub, TextTruncate = Enum.TextTruncate.AtEnd,
-			Font = Enum.Font.Gotham, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left,
+			Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
 		}, entry.Card)
 		entry.Detail = Util.New("TextLabel", {
-			Position = UDim2.fromOffset(60, 46), BackgroundTransparency = 1, Text = "",
+			Position = UDim2.fromOffset(60, 55), BackgroundTransparency = 1, Text = "",
 			TextColor3 = Theme.Sub, TextTruncate = Enum.TextTruncate.AtEnd,
-			Font = Enum.Font.GothamMedium, TextSize = 7, TextXAlignment = Enum.TextXAlignment.Left,
+			Font = Enum.Font.GothamMedium, TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
 		}, entry.Card)
 		for _, key in ipairs({"Focus", "Protect"}) do
 			entry[key] = Util.New("TextButton", {
@@ -13308,7 +13335,7 @@ function Pages.BuildPlayers()
 				Font = Enum.Font.GothamMedium, TextSize = 8, AutoButtonColor = false,
 			}, entry.Card)
 			Util.Corner(entry[key], 9)
-			Util.FitText(entry[key], 7, 9)
+			Util.FitText(entry[key], 10, 11)
 			UI.TouchFeedback(entry[key])
 		end
 		entry.Focus.Activated:Connect(function()
@@ -13426,14 +13453,12 @@ function Pages.BuildPlayers()
 	end)
 	local lastWidth = -1
 	local function layoutToolbar()
-		local narrow = toolbar.AbsoluteSize.X < 320
-		searchCard.Size = UDim2.new(1, narrow and 0 or -144, 0, 30)
-		controls.TapSelect.Position = narrow and UDim2.fromOffset(0, 37) or UDim2.new(1, -136, 0, 0)
-		controls.Help.Position = UDim2.new(1, 0, 0, narrow and 38 or 1)
-		filters.Position = UDim2.fromOffset(0, narrow and 76 or 39)
-		toolbar.Size = UDim2.new(1, -22, 0, narrow and 105 or 68)
-		page.Position = UDim2.fromOffset(3, narrow and 116 or 79)
-		page.Size = UDim2.new(1, -6, 1, narrow and -119 or -82)
+		local narrow = toolbar.AbsoluteSize.X < 420
+		searchCard.Size = UDim2.new(1, narrow and 0 or -172, 0, 36)
+		controls.TapSelect.Position = narrow and UDim2.fromOffset(0, 44) or UDim2.new(1, -164, 0, 0)
+		controls.Help.Position = UDim2.new(1, 0, 0, narrow and 47 or 4)
+		filters.Position = UDim2.fromOffset(0, narrow and 88 or 44)
+		toolbar.Size = UDim2.new(1, 0, 0, narrow and 126 or 82)
 	end
 	toolbar:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutToolbar)
 	layoutToolbar()
@@ -14561,7 +14586,7 @@ local function WireVisionGeneralUI()
 	local expandedPosition = State.UI.Main.Position
 	local normalMinSize = Vector2.new(560, 260)
 	local normalMaxSize = Vector2.new(1500, 820)
-	local normalFill = 0.84
+	local normalFill = 0.94
 	local maximizedFill = 0.97
 	local manualSize = nil
 	local maximizeGeneration = 0
@@ -16220,4 +16245,4 @@ ESP.RefreshAll()
 StartLoops()
 StartRender()
 
-print("[Aim Assist Pro V34.4.0 - Armas e intensidade] carregado")
+print("[Aim Assist Pro V34.5.0 - Menu clássico e espaçamento] carregado")
