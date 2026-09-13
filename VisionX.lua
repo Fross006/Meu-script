@@ -1,4 +1,4 @@
--- V35.0.1 — boas-vindas com progresso real de inicialização e animação da logo.
+-- V35.0.2 — novos ícones de Ajustes e Armas; controles e carregamento preservados.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -10510,37 +10510,152 @@ function Pages.BuildVisionAim()
 	return page
 end
 
-function UI.CreateWeaponGlyph(parent, key)
+function UI.CreateMenuGlyph(parent, size, background, color)
 	local box = Util.New("Frame", {
-		Size = UDim2.fromOffset(30, 30), BackgroundColor3 = Theme.Surface3,
+		Size = UDim2.fromOffset(size, size), BackgroundColor3 = background,
 		BackgroundTransparency = .15, BorderSizePixel = 0,
 	}, parent)
-	Util.Corner(box, 9)
-	local parts = {}
-	local function part(x, y, w, h, rotation)
-		local shape = Util.New("Frame", {
-			Position = UDim2.fromScale(x, y), Size = UDim2.fromScale(w, h),
-			BackgroundColor3 = Theme.Sub, BorderSizePixel = 0, Rotation = rotation or 0,
+	Util.New("UICorner", {CornerRadius = UDim.new(0, size * .28)}, box)
+	local glyph, draw = {Box = box, Ink = {}}, {}
+	local unit = size / 32
+	local function ink(object, property)
+		glyph.Ink[#glyph.Ink + 1] = {object, property}
+	end
+	local function shape(host, x, y, width, height, radius, hollow)
+		local object = Util.New("Frame", {
+			Name = hollow and "IconOutline" or "IconFill",
+			Position = UDim2.fromOffset(x * unit, y * unit),
+			Size = UDim2.fromOffset(width * unit, height * unit),
+			BackgroundColor3 = color, BackgroundTransparency = hollow and 1 or 0,
+			BorderSizePixel = 0,
+		}, host)
+		Util.New("UICorner", {CornerRadius = UDim.new(0, (radius or 0) * unit)}, object)
+		if hollow then
+			local stroke = Util.Stroke(object, color, 0, 1.8 * unit)
+			local centered = pcall(function() stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center end)
+			if not centered then
+				-- Keep the same outline bounds on clients with the older border renderer.
+				object.Position = UDim2.fromOffset((x + .9) * unit, (y + .9) * unit)
+				object.Size = UDim2.fromOffset((width - 1.8) * unit, (height - 1.8) * unit)
+				object:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, math.max(0, (radius or 0) - .9) * unit)
+			end
+			ink(stroke, "Color")
+		else
+			ink(object, "BackgroundColor3")
+		end
+		return object
+	end
+	function draw.Fill(x, y, width, height, radius)
+		return shape(box, x, y, width, height, radius, false)
+	end
+	function draw.Outline(x, y, width, height, radius)
+		return shape(box, x, y, width, height, radius, true)
+	end
+	function draw.Line(x1, y1, x2, y2, thickness)
+		local dx, dy = x2 - x1, y2 - y1
+		local length = math.sqrt(dx * dx + dy * dy)
+		local object = Util.New("Frame", {
+			Name = "IconLine", AnchorPoint = Vector2.new(.5, .5),
+			Position = UDim2.fromOffset((x1 + x2) * .5 * unit, (y1 + y2) * .5 * unit),
+			Size = UDim2.fromOffset((length + (thickness or 1.8)) * unit, (thickness or 1.8) * unit),
+			Rotation = math.deg(math.atan2(dy, dx)), BackgroundColor3 = color, BorderSizePixel = 0,
 		}, box)
-		Util.New("UICorner", {CornerRadius = UDim.new(0, 1)}, shape)
-		parts[#parts + 1] = shape
+		Util.New("UICorner", {CornerRadius = UDim.new(.5, 0)}, object)
+		ink(object, "BackgroundColor3")
+		return object
 	end
-	if key == "PROJECTILE" then
-		part(.21,.47,.60,.065); part(.66,.37,.22,.065,35); part(.66,.56,.22,.065,-35)
-		part(.20,.34,.11,.065,38); part(.20,.62,.11,.065,-38)
+	function draw.Bow()
+		-- One clipped circular border, with round tips, instead of joined segments.
+		local clip = Util.New("Frame", {
+			Name = "BowCurve", Position = UDim2.fromOffset(15 * unit, 5 * unit),
+			Size = UDim2.fromOffset(12 * unit, 22 * unit),
+			BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true,
+		}, box)
+		shape(clip, -10, 1, 20, 20, 10, true)
+		draw.Fill(14.1, 5.1, 1.8, 1.8, .9)
+		draw.Fill(14.1, 25.1, 1.8, 1.8, .9)
+	end
+	return glyph, draw
+end
+
+function UI.SetMenuGlyphColor(glyph, themeKey)
+	for _, entry in ipairs(glyph.Ink) do
+		entry[1][entry[2]] = Theme[themeKey]
+		-- Preserve the selection color when the user changes the menu's theme.
+		entry[1]:SetAttribute("AAPTheme_" .. entry[2], themeKey)
+	end
+end
+
+function UI.CreateWeaponGlyph(parent, key)
+	local glyph, draw = UI.CreateMenuGlyph(parent, 30, Theme.Surface3, Theme.Sub)
+	glyph.Box.Name = "WeaponIcon_" .. key
+	if key == "RIFLE" then
+		draw.Fill(2, 12, 6, 6, 1)
+		draw.Line(7, 14, 11, 14, 3)
+		draw.Fill(10, 11.5, 13, 5, 1)
+		draw.Line(23, 13.75, 29, 13.75, 2)
+		draw.Line(12.5, 16, 11, 22, 2.8)
+		draw.Line(18, 16.5, 18, 20, 3)
+		draw.Line(18, 20, 20, 23, 3)
+		draw.Fill(14, 9.4, 5, 1.6, .5)
+	elseif key == "SMG" then
+		draw.Outline(2.5, 13, 6, 5, .8)
+		draw.Line(8.5, 14.5, 12, 14.5, 2)
+		draw.Fill(11, 11, 13, 6, 1)
+		draw.Line(13, 16, 12, 23, 3)
+		draw.Fill(20, 16.5, 2.6, 5.5, .6)
+		draw.Line(24, 13.5, 28, 13.5, 2)
+		draw.Fill(16, 8.7, 5, 1.8, .6)
+	elseif key == "SNIPER" then
+		draw.Fill(2, 14, 7, 5, .8)
+		draw.Fill(8, 14, 15, 3, 1)
+		draw.Line(23, 15, 29.5, 15, 1.8)
+		draw.Line(11, 17, 10, 22, 2.5)
+		draw.Fill(18, 17, 3, 3.8, .5)
+		draw.Line(16, 11, 16, 14, 1.8)
+		draw.Outline(12, 8, 8, 3, 1.2)
+		draw.Fill(20, 7.5, 2, 4, .7)
+	elseif key == "SHOTGUN" then
+		draw.Line(8, 12.5, 29, 12.5, 1.8)
+		draw.Line(14, 15.7, 28, 15.7, 1.8)
+		draw.Fill(7, 12, 8, 6, .9)
+		draw.Line(3, 20, 8, 15, 3.8)
+		draw.Line(2.5, 18, 2.5, 22, 2)
+		draw.Fill(18, 15.3, 7, 3, .7)
 	elseif key == "PISTOL" then
-		part(.20,.32,.59,.16); part(.22,.48,.17,.29,12); part(.36,.48,.23,.06)
-	else
-		local scoped = key == "SNIPER" or key == "DMR"
-		part(.12,.41,.18,.17); part(.29,.40,.35,.15)
-		part(.62,.43,key == "SMG" and .17 or .27,.06)
-		part(.40,.53,.10,.22,15)
-		if key == "SHOTGUN" then part(.62,.51,.22,.07)
-		elseif key == "LMG" then part(.53,.53,.22,.23)
-		else part(.54,.53,.10,.22,-10) end
-		if scoped then part(.38,.25,.23,.075); part(.45,.31,.055,.09) end
+		draw.Outline(11.5, 12.5, 7, 6, 1.8)
+		draw.Line(9.5, 14, 7.5, 23, 4)
+		draw.Fill(7, 8.5, 18, 5, 1.2)
+		draw.Fill(10, 7, 2, 1.5, .5)
+	elseif key == "DMR" then
+		draw.Outline(2.5, 13.5, 5.5, 5, .8)
+		draw.Line(7, 17, 11, 14.5, 2.4)
+		draw.Fill(10, 13, 11, 4, 1)
+		draw.Line(21, 14.5, 28.5, 14.5, 1.8)
+		draw.Fill(28, 13, 2, 3, .5)
+		draw.Line(12, 17, 11, 22, 2.6)
+		draw.Fill(17, 17, 3, 5.8, .7)
+		draw.Line(15.5, 12, 15.5, 14, 1.5)
+		draw.Outline(13, 8.5, 5, 3.5, 1.1)
+	elseif key == "LMG" then
+		draw.Fill(2, 12, 6, 5, .7)
+		draw.Line(8, 14, 11, 14, 3)
+		draw.Fill(10, 11, 14, 5, 1)
+		draw.Line(24, 13.5, 29.5, 13.5, 1.8)
+		draw.Outline(13, 7, 7, 4, 1)
+		draw.Outline(15, 17, 7, 7, 3.5)
+		draw.Line(12, 16, 10.5, 21, 2.6)
+		draw.Line(24, 16, 23, 22, 1.6)
+		draw.Line(24, 16, 27, 22, 1.6)
+	elseif key == "PROJECTILE" then
+		draw.Bow()
+		draw.Line(15, 6, 10, 16, 1.5)
+		draw.Line(10, 16, 15, 26, 1.5)
+		draw.Line(6, 16, 29, 16, 1.8)
+		draw.Line(25.5, 12.5, 29, 16, 1.8)
+		draw.Line(29, 16, 25.5, 19.5, 1.8)
 	end
-	return {Box = box, Parts = parts}
+	return glyph
 end
 
 function UI.SetReadableText(label, size, height)
@@ -10608,7 +10723,8 @@ function UI.SetArmChoiceSelected(control, selected)
 	control.Title.TextColor3 = selected and Theme.Accent2 or Theme.Text
 	if control.Glyph then
 		control.Glyph.Box.BackgroundColor3 = selected and Theme.AccentSoft or Theme.Surface3
-		for _, part in ipairs(control.Glyph.Parts) do part.BackgroundColor3 = selected and Theme.Accent2 or Theme.Sub end
+		control.Glyph.Box:SetAttribute("AAPTheme_BackgroundColor3", selected and "AccentSoft" or "Surface3")
+		UI.SetMenuGlyphColor(control.Glyph, selected and "Accent2" or "Sub")
 	end
 end
 
@@ -12261,30 +12377,34 @@ function UI.SettingsText(parent, text, position, size, fontSize, color, bold)
 end
 
 function UI.SettingsGlyph(parent, kind, size)
-	local box = Util.New("Frame", {
-		Size = UDim2.fromOffset(size, size), BackgroundColor3 = Theme.AccentSoft,
-		BackgroundTransparency = 0.35, BorderSizePixel = 0,
-	}, parent)
-	Util.Corner(box, 10)
-	local function part(x, y, w, h, color, hollow)
-		local shape = Util.New("Frame", {
-			Position = UDim2.fromScale(x, y), Size = UDim2.fromScale(w, h),
-			BackgroundColor3 = color or Theme.Accent2, BackgroundTransparency = hollow and 1 or 0,
-			BorderSizePixel = 0,
-		}, box)
-		Util.Corner(shape, 999)
-		if hollow then Util.Stroke(shape, Theme.Accent2, 0.12, 1) end
-	end
+	local glyph, draw = UI.CreateMenuGlyph(parent, size, Theme.AccentSoft, Theme.Accent2)
+	glyph.Box.Name = "SettingsIcon_" .. kind
+	glyph.Box.BackgroundTransparency = .35
 	if kind == "MENU" then
-		part(.25,.25,.18,.18); part(.57,.25,.18,.18); part(.25,.57,.18,.18); part(.57,.57,.18,.18)
+		-- Window: appearance and arrangement of the interface.
+		draw.Outline(6, 7, 20, 18, 3)
+		draw.Line(7, 13, 25, 13)
+		draw.Line(13, 14, 13, 24)
 	elseif kind == "MOBILE" then
-		part(.33,.18,.34,.64,nil,true); part(.43,.69,.14,.04)
+		draw.Outline(10, 4, 12, 24, 3)
+		draw.Line(14, 7, 18, 7, 1.6)
+		draw.Fill(15.1, 23.1, 1.8, 1.8, .9)
 	elseif kind == "ORDER" then
-		part(.25,.29,.5,.07); part(.25,.47,.36,.07); part(.25,.65,.44,.07)
+		-- Equal rows and a small drag handle make the ordering action recognizable.
+		for _, y in ipairs({10, 16, 22}) do
+			draw.Fill(5.2, y - .8, 1.6, 1.6, .8)
+			draw.Fill(8.2, y - .8, 1.6, 1.6, .8)
+			draw.Line(14, y, 25, y, 1.9)
+		end
 	else
-		part(.23,.27,.54,.47,nil,true); part(.37,.36,.26,.06); part(.37,.5,.26,.06)
+		-- Saved settings: a disk with a distinct label, never an oval.
+		draw.Outline(7, 5, 18, 22, 2.8)
+		draw.Line(12, 6, 12, 12, 1.6)
+		draw.Line(12, 12, 20, 12, 1.6)
+		draw.Line(20, 12, 20, 6, 1.6)
+		draw.Outline(11, 18, 10, 6, 1)
 	end
-	return box
+	return glyph.Box
 end
 
 function UI.SettingsGroup(parent, title, subtitle, id)
@@ -16870,7 +16990,7 @@ local function InitializeVisionX()
 		if not Runtime.Alive or not State.UI.Root or not State.UI.Root.Parent then return end
 		State.UI.Root.Enabled = true
 		UI.SetWindowVisible(State.UI.Main, true)
-		print("[VisionX V35.0.1 - Boas-vindas] carregado")
+		print("[VisionX V35.0.2 - Ícones] carregado")
 	end)
 end
 
