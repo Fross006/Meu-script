@@ -1,4 +1,4 @@
--- V34.7.0 — aba Mira reorganizada, com controles legíveis e visual adaptado ao celular.
+-- V34.8.0 — nova aba Corpo e seletores compactos junto aos botões.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -5026,6 +5026,7 @@ function UI.DestroyDialog(active)
 	UI.Motion.ClosingDialogs[active] = nil
 	for _, connection in ipairs(active.Connections or {}) do connection:Disconnect() end
 	for _, entry in ipairs(active.Opacity or {}) do Util.StopTween(entry.Object) end
+	if active.Driver then Util.StopTween(active.Driver) end
 	if active.Scale then Util.StopTween(active.Scale) end
 	if active.Overlay and active.Overlay.Parent then active.Overlay:Destroy() end
 	if active.Panel and active.Panel.Parent then active.Panel:Destroy() end
@@ -5322,10 +5323,75 @@ function UI.Toast(message)
 	end)
 end
 
+function UI.AttachChoiceIndicator(control)
+	local value = control and control.Value
+	if typeof(value) ~= "Instance" then return end
+	if control.ChoiceIndicator then return control.ChoiceIndicator end
+	local marker = Util.New("Frame", {Name = "AAP_ChoiceIndicator", AnchorPoint = Vector2.new(.5, .5),
+		Size = UDim2.fromOffset(14, 10), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ZIndex = value.ZIndex + 1}, value.Parent)
+	for index, angle in ipairs({45, -45}) do
+		local line = Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5),
+			Position = UDim2.fromOffset(index == 1 and 4 or 10, 4), Size = UDim2.fromOffset(8, 2),
+			BackgroundColor3 = Theme.Sub, BorderSizePixel = 0, Rotation = angle,
+			ZIndex = marker.ZIndex}, marker)
+		Util.Corner(line, 999)
+	end
+	local padding = value:FindFirstChildOfClass("UIPadding")
+	if not padding then padding = Util.New("UIPadding", {}, value) end
+	padding.PaddingLeft = UDim.new(0, 9)
+	padding.PaddingRight = UDim.new(0, 30)
+	local function position()
+		local p, s, a = value.Position, value.Size, value.AnchorPoint
+		marker.Position = UDim2.new(p.X.Scale + s.X.Scale * (1 - a.X),
+			p.X.Offset + s.X.Offset * (1 - a.X) - 16,
+			p.Y.Scale + s.Y.Scale * (.5 - a.Y), p.Y.Offset + s.Y.Offset * (.5 - a.Y))
+		marker.Visible = value.Visible
+	end
+	for _, property in ipairs({"Position", "Size", "AnchorPoint", "Visible"}) do
+		value:GetPropertyChangedSignal(property):Connect(position)
+	end
+	control.ChoiceIndicator = marker
+	control.RefreshChoiceIndicator = position
+	position()
+	return marker
+end
+
+function UI.PaintAttachedChoice(menu)
+	if not menu.Panel.Parent then return end
+	local progress = math.clamp(menu.Driver.Value, 0, 1)
+	menu.Panel.Size = UDim2.fromOffset(menu.Width, math.max(1, menu.Height * progress))
+	for _, entry in ipairs(menu.Opacity or {}) do
+		if entry.Object.Parent then
+			for property, base in pairs(entry.Values) do entry.Object[property] = 1 - (1 - base) * progress end
+		end
+	end
+end
+
+function UI.DismissAttachedChoice(menu, instant)
+	if not menu then return end
+	for _, connection in ipairs(menu.Connections) do connection:Disconnect() end
+	menu.Connections = {}
+	if menu.Indicator and menu.Indicator.Parent then
+		if instant == true then Util.StopTween(menu.Indicator); menu.Indicator.Rotation = 0
+		else Util.Tween(menu.Indicator, {Rotation = 0}, .14) end
+	end
+	UI.ResetTouchFeedback()
+	if instant == true or not Runtime.Alive or not UI.MotionReady or not menu.Panel.Parent then
+		UI.DestroyDialog(menu); return
+	end
+	UI.Motion.ClosingDialogs[menu] = true
+	menu.DriverConnection = menu.Driver:GetPropertyChangedSignal("Value"):Connect(function() UI.PaintAttachedChoice(menu) end)
+	menu.Connections[1] = menu.DriverConnection
+	Util.Tween(menu.Driver, {Value = 0}, .12, Enum.EasingStyle.Cubic, Enum.EasingDirection.In,
+		function() UI.DestroyDialog(menu) end)
+end
+
 function UI.CloseChoiceMenu(instant)
 	local active = State.UI.ActiveChoiceMenu
 	State.UI.ActiveChoiceMenu = nil
-	UI.DismissDialog(active, instant)
+	if active and active.Attached then UI.DismissAttachedChoice(active, instant)
+	else UI.DismissDialog(active, instant) end
 end
 
 function UI.CloseHelpDialog(instant)
@@ -5467,189 +5533,167 @@ function UI.CreateHelpButton(parent, title, message, position)
 	return button
 end
 
-function UI.OpenChoiceMenu(anchor, title, choices, currentValue, onSelected)
+function UI.OpenChoiceMenu(anchor, title, choices, currentValue, onSelected, indicator)
 	local root = State.UI.Root
-	if not anchor or not anchor.Parent or not root or not root.Parent
-		or type(choices) ~= "table" or #choices == 0 or State.UI.LayoutEditMode then
-		return false
-	end
+	if not Runtime.Alive or not anchor or not anchor.Parent or not root or not root.Parent
+		or type(choices) ~= "table" or #choices == 0 or State.UI.LayoutEditMode then return false end
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(true) end
-	UI.CloseChoiceMenu(true)
-	UI.CloseHelpDialog(true)
-	UI.FlushClosingDialogs()
-
-	local overlay = Util.New("TextButton", {
-		Name = "AAP_ChoiceOverlay", Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.40,
-		BorderSizePixel = 0, Text = "", Active = true, Modal = true,
-		AutoButtonColor = false, ZIndex = 180,
-	}, root)
-	local panel = Util.New("TextButton", {
-		Name = "AAP_ChoicePanel", AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		BackgroundColor3 = Theme.Surface2, BackgroundTransparency = 0.01,
-		BorderSizePixel = 0, Text = "", AutoButtonColor = false,
-		Active = true, ClipsDescendants = true, ZIndex = 181,
-	}, root)
-	Util.Corner(panel, 18)
-	Util.Stroke(panel, Theme.BorderSoft, 0.32, 1)
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(20, 16), Size = UDim2.new(1, -70, 0, 12),
-		BackgroundTransparency = 1, Text = "ESCOLHA UMA OPÇÃO",
-		TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium, TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 183,
-	}, panel)
-	Util.FitText(Util.New("TextLabel", {
-		Position = UDim2.fromOffset(20, 34), Size = UDim2.new(1, -40, 0, 24),
-		BackgroundTransparency = 1, Text = tostring(title or "Opções"),
-		TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 183,
-	}, panel), 10, 14)
-	local close = Util.New("TextButton", {
-		Name = "AAP_CloseChoice", AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(30, 28),
-		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = 0.45,
-		BorderSizePixel = 0, Text = "×", TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham, TextSize = 16, AutoButtonColor = false, ZIndex = 184,
-	}, panel)
-	Util.Corner(close, 9)
-	UI.TouchFeedback(close)
-	local list = Util.New("ScrollingFrame", {
-		Name = "AAP_ChoiceList", Position = UDim2.fromOffset(16, 70),
-		Size = UDim2.new(1, -32, 1, -106),
+	local previous = State.UI.ActiveChoiceMenu
+	if previous and previous.Anchor == anchor then UI.CloseChoiceMenu(); return false end
+	UI.CloseChoiceMenu(true); UI.CloseHelpDialog(true); UI.FlushClosingDialogs()
+	local overlay = Util.New("TextButton", {Name = "AAP_ChoiceOverlay", Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+		Active = true, ZIndex = 180}, root)
+	local panel = Util.New("TextButton", {Name = "AAP_AttachedChoices", BackgroundColor3 = Theme.Surface2,
+		BackgroundTransparency = .02, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
+		Active = true, ClipsDescendants = true, ZIndex = 181}, root)
+	Util.Corner(panel, 12); Util.Stroke(panel, Theme.BorderSoft, .36, 1)
+	local list = Util.New("ScrollingFrame", {Name = "AAP_ChoiceList", Position = UDim2.fromOffset(4, 4),
 		BackgroundTransparency = 1, BorderSizePixel = 0, CanvasSize = UDim2.new(),
-		AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 3,
-		ScrollBarImageColor3 = Theme.Sub, ScrollBarImageTransparency = 0.45,
-		ScrollingDirection = Enum.ScrollingDirection.Y,
-		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
-		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
-		ClipsDescendants = true, Active = true, ZIndex = 182,
-	}, panel)
-	Util.New("UIListLayout", {
-		Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder,
-	}, list)
-	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 6),
-		PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 4),
-	}, list)
-	Util.New("TextLabel", {
-		AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 20, 1, -12),
-		Size = UDim2.new(1, -40, 0, 14), BackgroundTransparency = 1,
-		Text = "Toque em uma opção para aplicar.", TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham, TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 183,
-	}, panel)
-	local menu = {Overlay = overlay, Panel = panel, List = list, Rows = {}, Connections = {}}
+		ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Sub, ScrollBarImageTransparency = .4,
+		ScrollingDirection = Enum.ScrollingDirection.Y, ScrollingEnabled = true,
+		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable, ClipsDescendants = true,
+		Active = true, ZIndex = 182}, panel)
+	local menu = {Attached = true, Anchor = anchor, Indicator = indicator, Overlay = overlay, Panel = panel,
+		List = list, Rows = {}, Connections = {}, Width = 1, Height = 1,
+		Driver = Util.New("NumberValue", {Value = 0}, panel)}
 	State.UI.ActiveChoiceMenu = menu
 	for index, choice in ipairs(choices) do
 		local selected = choice.Value == currentValue
-		local row = Util.New("TextButton", {
-			Name = "AAP_Choice_" .. tostring(index), Size = UDim2.new(1, -2, 0, 64),
-			BackgroundColor3 = selected and Theme.CardActive or Theme.Card,
-			BackgroundTransparency = selected and 0.04 or 0.20,
-			BorderSizePixel = 0, Text = "", AutoButtonColor = false,
-			LayoutOrder = index, ZIndex = 183,
-		}, list)
-		Util.Corner(row, 12)
-		Util.Stroke(row, selected and Theme.AccentSoft or Theme.BorderSoft,
-			selected and 0.15 or 0.75, 1)
-		local radio = Util.New("Frame", {
-			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0),
-			Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Theme.Chip,
-			BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = 184,
-		}, row)
-		Util.Corner(radio, 999)
-		Util.Stroke(radio, selected and Theme.Accent2 or Theme.Muted, selected and 0.05 or 0.40, 1)
+		local row = Util.New("TextButton", {Name = "AAP_Choice_" .. index, BackgroundColor3 = selected and Theme.CardActive or Theme.Surface2,
+			BackgroundTransparency = selected and .03 or 1, BorderSizePixel = 0, Text = "",
+			AutoButtonColor = false, ZIndex = 183}, list)
+		Util.Corner(row, 8)
+		local label = Util.New("TextLabel", {Position = UDim2.fromOffset(10, 9),
+			Size = UDim2.new(1, -40, 0, 18), BackgroundTransparency = 1,
+			Text = tostring(choice.Label or choice.Value), TextColor3 = selected and Theme.Accent2 or Theme.Text,
+			Font = Enum.Font.GothamMedium, TextSize = 10, TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 184}, row)
+		local radio = Util.New("Frame", {AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -11, .5, 0),
+			Size = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Chip, BorderSizePixel = 0, ZIndex = 184}, row)
+		Util.Corner(radio, 999); Util.Stroke(radio, selected and Theme.Accent2 or Theme.Muted, .25, 1)
 		if selected then
-			local dot = Util.New("Frame", {
-				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.fromOffset(8, 8), BackgroundColor3 = Theme.Accent2,
-				BorderSizePixel = 0, ZIndex = 185,
-			}, radio)
-			Util.Corner(dot, 999)
+			local dot = Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+				Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Theme.Accent2, BorderSizePixel = 0, ZIndex = 185}, radio)
+			Util.Corner(dot, 999); menu.SelectedIndex = index
 		end
-		local label = Util.New("TextLabel", {
-			Position = UDim2.fromOffset(46, 12), Size = UDim2.new(1, -60, 0, 18),
-			BackgroundTransparency = 1, Text = tostring(choice.Label or choice.Value),
-			TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 11,
-			TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
-			TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 184,
-		}, row)
 		local description
 		if choice.Description and choice.Description ~= "" then
-			description = Util.New("TextLabel", {
-				Position = UDim2.fromOffset(46, 34), Size = UDim2.new(1, -60, 0, 24),
-				BackgroundTransparency = 1, Text = tostring(choice.Description),
-				TextColor3 = Theme.Sub, Font = Enum.Font.Gotham, TextSize = 10,
-				TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
-				TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 184,
-			}, row)
+			description = Util.New("TextLabel", {Position = UDim2.fromOffset(10, 27),
+				BackgroundTransparency = 1, Text = tostring(choice.Description), TextColor3 = Theme.Sub,
+				Font = Enum.Font.Gotham, TextSize = 9, TextWrapped = true,
+				TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 184}, row)
 		end
-		menu.Rows[#menu.Rows + 1] = {Card = row, Title = label, Description = description, Radio = radio}
-		UI.TouchFeedback(row)
+		menu.Rows[index] = {Card = row, Title = label, Description = description, Radio = radio, Value = choice.Value}
 		row.Activated:Connect(function()
-			-- A second touch on a closing row must not apply the choice twice.
 			if State.UI.ActiveChoiceMenu ~= menu or not Runtime.Alive then return end
 			UI.CloseChoiceMenu()
 			if onSelected then onSelected(choice.Value, choice) end
 		end)
+		UI.TouchFeedback(row)
 	end
+	local page = UI.GetPageForObject(anchor)
+	local boundsObject = page or State.UI.PageHost
 	local function measure(label, width)
 		local ok, bounds = pcall(function()
 			return game:GetService("TextService"):GetTextSize(label.Text, label.TextSize,
 				label.Font, Vector2.new(math.max(width, 1), 10000))
 		end)
 		return ok and math.ceil(bounds.Y) + 2
-			or math.ceil(#label.Text * label.TextSize * 0.62 / math.max(width, 1)) * (label.TextSize + 3)
+			or math.ceil(#label.Text * label.TextSize * .62 / math.max(width, 1)) * (label.TextSize + 2)
 	end
 	local function layout()
+		if State.UI.ActiveChoiceMenu ~= menu then return end
+		local ancestor = anchor
+		while ancestor and ancestor ~= root do
+			if ancestor:IsA("GuiObject") and not ancestor.Visible then UI.CloseChoiceMenu(true); return end
+			ancestor = ancestor.Parent
+		end
+		if not ancestor then UI.CloseChoiceMenu(true); return end
 		local camera = S.Workspace.CurrentCamera or S.Camera
 		local viewport = camera and camera.ViewportSize or Vector2.new(800, 450)
-		local width = math.max(1, math.min(420, viewport.X - 32))
-		local contentHeight = 6 + math.max(#menu.Rows - 1, 0) * 7
-		for _, row in ipairs(menu.Rows) do
-			local titleHeight = math.max(18, measure(row.Title, width - 106))
-			row.Title.Size = UDim2.new(1, -60, 0, titleHeight)
-			local height = 24 + titleHeight
-			if row.Description then
-				local descriptionHeight = math.max(14, measure(row.Description, width - 106))
-				row.Description.Position = UDim2.fromOffset(46, 16 + titleHeight)
-				row.Description.Size = UDim2.new(1, -60, 0, descriptionHeight)
-				height += 4 + descriptionHeight
-			end
-			height = math.max(height, 48)
-			row.Card.Size = UDim2.new(1, -2, 0, height)
-			contentHeight += height
+		local left, top, right, bottom = 6, 6, viewport.X - 6, viewport.Y - 6
+		if boundsObject and boundsObject.Parent then
+			local p, s = boundsObject.AbsolutePosition, boundsObject.AbsoluteSize
+			left, top = math.max(left, p.X + 3), math.max(top, p.Y + 3)
+			right, bottom = math.min(right, p.X + s.X - 3), math.min(bottom, p.Y + s.Y - 3)
 		end
-		local height = math.min(contentHeight + 106, math.max(viewport.Y - 32, 1), 520)
-		panel.Size = UDim2.fromOffset(width, height)
+		local position, size = anchor.AbsolutePosition, anchor.AbsoluteSize
+		if size.X <= 1 or position.Y + size.Y < top or position.Y > bottom or right - left < 50 then
+			UI.CloseChoiceMenu(true); return
+		end
+		local width = math.min(math.max(size.X, 190), 330, right - left)
+		local contentHeight = 0
+		for _, row in ipairs(menu.Rows) do
+			local titleHeight = math.max(16, measure(row.Title, width - 51))
+			row.Title.Size = UDim2.new(1, -40, 0, titleHeight)
+			local height = 18 + titleHeight
+			if row.Description then
+				local descriptionHeight = math.max(12, measure(row.Description, width - 51))
+				row.Description.Position = UDim2.fromOffset(10, 12 + titleHeight)
+				row.Description.Size = UDim2.new(1, -40, 0, descriptionHeight)
+				height += 3 + descriptionHeight
+			end
+			height = math.max(36, height)
+			row.Card.Position = UDim2.fromOffset(0, contentHeight)
+			row.Card.Size = UDim2.new(1, -3, 0, height)
+			contentHeight += height + 2
+		end
+		contentHeight = math.max(contentHeight - 2, 0)
+		local below, above = bottom - position.Y - size.Y - 4, position.Y - top - 4
+		local desired = math.min(contentHeight + 8, 208)
+		local upward = below < desired and above > below
+		local height = math.min(desired, upward and above or below)
+		if height < 36 then UI.CloseChoiceMenu(true); return end
+		menu.Width, menu.Height, menu.Upward = width, height, upward
+		panel.AnchorPoint = Vector2.new(0, upward and 1 or 0)
+		panel.Position = UDim2.fromOffset(math.clamp(position.X + size.X - width, left, right - width),
+			upward and position.Y - 4 or position.Y + size.Y + 4)
+		list.Size = UDim2.fromOffset(width - 8, height - 8)
+		list.CanvasSize = UDim2.fromOffset(0, contentHeight)
+		if not menu.ScrollInitialized then
+			local row = menu.SelectedIndex and menu.Rows[menu.SelectedIndex]
+			list.CanvasPosition = Vector2.new(0, row and math.clamp(row.Card.Position.Y.Offset - (height - row.Card.Size.Y.Offset) / 2,
+				0, math.max(contentHeight - height + 8, 0)) or 0)
+			menu.ScrollInitialized = true
+		end
+		UI.PaintAttachedChoice(menu)
 	end
+	menu.Layout = layout
 	layout()
-	menu.Connections[1] = root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
-	overlay.Activated:Connect(UI.CloseChoiceMenu)
-	close.Activated:Connect(UI.CloseChoiceMenu)
-	UI.AnimateDialogIn(menu)
+	if State.UI.ActiveChoiceMenu ~= menu then return false end
+	-- Only a short progress tween changes the crop and opacity; text never scales.
+	UI.CaptureDialogOpacity(menu)
+	UI.PaintAttachedChoice(menu)
+	local function track(connection) menu.Connections[#menu.Connections + 1] = connection end
+	track(menu.Driver:GetPropertyChangedSignal("Value"):Connect(function() UI.PaintAttachedChoice(menu) end))
+	for _, property in ipairs({"AbsolutePosition", "AbsoluteSize"}) do track(anchor:GetPropertyChangedSignal(property):Connect(layout)) end
+	if boundsObject then track(boundsObject:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)) end
+	local ancestor = anchor
+	while ancestor and ancestor ~= root do
+		if ancestor:IsA("GuiObject") then track(ancestor:GetPropertyChangedSignal("Visible"):Connect(layout)) end
+		if ancestor:IsA("ScrollingFrame") then track(ancestor:GetPropertyChangedSignal("CanvasPosition"):Connect(layout)) end
+		ancestor = ancestor.Parent
+	end
+	track(anchor.Destroying:Connect(function() if State.UI.ActiveChoiceMenu == menu then UI.CloseChoiceMenu(true) end end))
+	track(root:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout))
+	overlay.Activated:Connect(function() UI.CloseChoiceMenu() end)
+	if indicator then Util.Tween(indicator, {Rotation = 180}, .18) end
+	if UI.MotionReady then Util.Tween(menu.Driver, {Value = 1}, .18)
+	else menu.Driver.Value = 1; UI.PaintAttachedChoice(menu) end
 	return true
 end
 
 function UI.BindChoiceMenu(control, title, choices, getCurrent, onSelected)
-	if not control or not control.Card then
-		return
-	end
-
+	if not control or not control.Card then return end
+	UI.AttachChoiceIndicator(control)
 	control.Card.Activated:Connect(function()
-		if control.Available == false or State.UI.LayoutEditMode then return end
+		if not Runtime.Alive or control.Available == false or State.UI.LayoutEditMode then return end
 		local current = getCurrent
-		if type(getCurrent) == "function" then
-			current = getCurrent()
-		end
-		UI.OpenChoiceMenu(
-			control.Card,
-			title,
-			choices,
-			current,
-			onSelected
-		)
+		if type(getCurrent) == "function" then current = getCurrent() end
+		local options = type(choices) == "function" and choices() or choices
+		UI.OpenChoiceMenu(typeof(control.Value) == "Instance" and control.Value or control.Card,
+			title, options, current, onSelected, control.ChoiceIndicator)
 	end)
 end
 
@@ -5750,6 +5794,7 @@ function UI.ApplyControlScale(value)
 	end
 
 	if State.UI.RefreshAimLayout then State.UI.RefreshAimLayout() end
+	if State.UI.BodyControls then UI.LayoutBodyWorkspace(State.UI.BodyControls) end
 	return Config.ControlScale
 end
 
@@ -9501,14 +9546,8 @@ function UI.StyleAimControl(control)
 		control.Value.TextColor3 = Theme.Accent2
 		control.Value.TextXAlignment = Enum.TextXAlignment.Left
 		UI.SetReadableText(control.Value, 10)
-		if not control.AimValuePadding then
-			control.AimValuePadding = Util.New("UIPadding", {
-				PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 25),
-			}, control.Value)
-			control.Chevron = UI.AimText(control.Value, "›", UDim2.new(1, -16, 0, 2),
-				UDim2.fromOffset(12, 20), 15, Theme.Sub)
-			control.Chevron.Rotation = 90
-		end
+		UI.AttachChoiceIndicator(control)
+		if control.RefreshChoiceIndicator then control.RefreshChoiceIndicator() end
 	elseif control.Switch then
 		control.Switch.Position = UDim2.new(1, -12, 0, 7)
 	end
@@ -9812,7 +9851,7 @@ function Pages.BuildVisionAim()
 		)
 		controls.Priority.Value.Text =
 			part
-			and part.Label
+			and UI.BodyPartLabel(Config.PrimaryBodyPartName)
 			or bodyLabels[Config.PrimaryBodyRegion] or region and region.Label
 			or "Padrão"
 
@@ -10323,6 +10362,171 @@ function Pages.BuildAssistant()
 	return page
 end
 
+UI.BodyPartLabels = {
+	Head = "Cabeça", Torso = "Tronco", UpperTorso = "Tronco superior", LowerTorso = "Tronco inferior",
+	["Left Arm"] = "Braço esquerdo", ["Right Arm"] = "Braço direito",
+	LeftUpperArm = "Braço esquerdo", RightUpperArm = "Braço direito",
+	LeftLowerArm = "Antebraço esquerdo", RightLowerArm = "Antebraço direito",
+	LeftHand = "Mão esquerda", RightHand = "Mão direita",
+	["Left Leg"] = "Perna esquerda", ["Right Leg"] = "Perna direita",
+	LeftUpperLeg = "Coxa esquerda", RightUpperLeg = "Coxa direita",
+	LeftLowerLeg = "Perna esquerda", RightLowerLeg = "Perna direita",
+	LeftFoot = "Pé esquerdo", RightFoot = "Pé direito",
+}
+UI.BodyRegionLabels = {Head = "Cabeça", Torso = "Tronco", LeftArm = "Braço esquerdo", RightArm = "Braço direito",
+	LeftLeg = "Perna esquerda", RightLeg = "Perna direita"}
+
+function UI.BodyPartLabel(partName)
+	return UI.BodyPartLabels[partName] or tostring(partName or "Parte do corpo")
+end
+
+function UI.CreateBodyWorkspace(page, controls)
+	page:SetAttribute("AAPHideScrollCue", true)
+	local header = Util.New("Frame", {Name = "AAP_BodyHeader", Size = UDim2.new(1, 0, 0, 58),
+		BackgroundTransparency = 1, LayoutOrder = -100}, page)
+	UI.AimText(header, "Corpo", UDim2.fromOffset(2, 2), UDim2.new(1, -42, 0, 24), 16, Theme.Text, true)
+	UI.AimText(header, "Escolha onde a mira deve começar.", UDim2.fromOffset(2, 32), UDim2.new(1, -42, 0, 16), 9, Theme.Sub)
+	UI.CreateHelpButton(header, "Sua parte principal",
+		"Toque no boneco ou escolha uma parte pela lista. R6 tem seis partes; R15 separa braços, pernas e tronco em mais segmentos. A escolha também aparece na aba Mira. Se o jogador usar outro modelo, a mira procura a região equivalente.", UDim2.new(1, 0, 0, 10))
+	local panel = Util.New("Frame", {Name = "AAP_BodyWorkspace", Size = UDim2.new(1, 0, 0, 296),
+		BackgroundColor3 = Theme.Card, BackgroundTransparency = .12, BorderSizePixel = 0, LayoutOrder = 0}, page)
+	Util.Corner(panel, 14); Util.Stroke(panel, Theme.BorderSoft, .55, 1)
+	UI.AimText(panel, "Modelo", UDim2.fromOffset(12, 14), UDim2.new(1, -142, 0, 18), 10, Theme.Sub)
+	local selector = Util.New("Frame", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 8),
+		Size = UDim2.fromOffset(112, 32), BackgroundColor3 = Theme.Surface2, BorderSizePixel = 0}, panel)
+	Util.Corner(selector, 10); Util.Stroke(selector, Theme.BorderSoft, .68, 1)
+	for index, rigName in ipairs({"R6", "R15"}) do
+		local button = Util.New("TextButton", {Position = UDim2.fromOffset(3 + (index - 1) * 55, 3),
+			Size = UDim2.fromOffset(51, 26), BackgroundColor3 = Theme.Card, BackgroundTransparency = .08,
+			BorderSizePixel = 0, Text = rigName, TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium,
+			TextSize = 10, AutoButtonColor = false}, selector)
+		Util.Corner(button, 8); UI.TouchFeedback(button)
+		controls.RigButtons[rigName] = {Button = button, Stroke = Util.Stroke(button, Theme.BorderSoft, .7, 1)}
+	end
+	local stage = Util.New("Frame", {Name = "AAP_BodyStage", BackgroundColor3 = Theme.Surface2,
+		BackgroundTransparency = .04, BorderSizePixel = 0}, panel)
+	Util.Corner(stage, 12)
+	local viewport = Util.New("ViewportFrame", {Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1, -4, 1, -35),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Ambient = Color3.fromRGB(215, 215, 220),
+		LightColor = Color3.fromRGB(255, 255, 255), LightDirection = Vector3.new(-.5, -1, -.6),
+		ClipsDescendants = true}, stage)
+	local world = Util.New("WorldModel", {}, viewport)
+	local camera = Instance.new("Camera"); camera.Parent = viewport; viewport.CurrentCamera = camera
+	local previewHint = UI.AimText(stage, "Carregando boneco…", UDim2.new(0, 8, 1, -30), UDim2.new(1, -16, 0, 24), 8, Theme.Sub)
+	previewHint.TextWrapped = true; previewHint.TextXAlignment = Enum.TextXAlignment.Center
+	local detail = Util.New("Frame", {Name = "AAP_BodySelection", BackgroundTransparency = 1}, panel)
+	UI.AimText(detail, "Parte principal", UDim2.fromOffset(2, 3), UDim2.new(1, -4, 0, 18), 10, Theme.Text, true)
+	local partButton = Util.New("TextButton", {Position = UDim2.fromOffset(0, 29), Size = UDim2.new(1, 0, 0, 38),
+		BackgroundColor3 = Theme.CardActive, BackgroundTransparency = .06, BorderSizePixel = 0,
+		Text = "", AutoButtonColor = false}, detail)
+	Util.Corner(partButton, 10); Util.Stroke(partButton, Theme.AccentSoft, .45, 1); UI.TouchFeedback(partButton)
+	controls.Title = UI.AimText(partButton, "", UDim2.new(), UDim2.fromScale(1, 1), 11, Theme.Accent2, true)
+	controls.PartPicker = {Card = partButton, Value = controls.Title}
+	controls.Status = UI.AimText(detail, "", UDim2.fromOffset(2, 75), UDim2.new(1, -4, 0, 16), 9, Theme.Sub)
+	controls.SyncStatus = UI.AimText(detail, "Usada também na aba Mira.", UDim2.fromOffset(2, 96), UDim2.new(1, -4, 0, 16), 9, Theme.Sub)
+	controls.RegionEnabled = UI.CreateToggle(detail, "Região principal", "Sempre disponível.", {Organizable = false, Scalable = false})
+	local primary = controls.RegionEnabled
+	primary.Card.Position = UDim2.fromOffset(0, 122); primary.Card.Size = UDim2.new(1, 0, 0, 38)
+	primary.Title.Position = UDim2.fromOffset(10, 9); primary.Title.Size = UDim2.new(1, -63, 0, 18)
+	UI.SetReadableText(primary.Title, 9); primary.Switch.Visible = false; primary.Description.Visible = false
+	controls.RegionChip = UI.AimText(primary.Card, "Ativa", UDim2.new(1, -51, 0, 10), UDim2.fromOffset(42, 18), 9, Theme.Accent2)
+	controls.RuleSummary = UI.AimText(detail, "", UDim2.fromOffset(2, 169), UDim2.new(1, -4, 0, 32), 9, Theme.Sub)
+	controls.RuleSummary.TextWrapped = true
+	controls.Recenter = Util.New("TextButton", {Position = UDim2.new(0, 0, 1, -32), Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .12, BorderSizePixel = 0,
+		Text = "Voltar à frente", TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium, TextSize = 9,
+		AutoButtonColor = false}, detail)
+	Util.Corner(controls.Recenter, 9); UI.TouchFeedback(controls.Recenter)
+	controls.Reload = Util.New("TextButton", {AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+		Size = UDim2.fromOffset(116, 32), BackgroundColor3 = Theme.Surface3, BorderSizePixel = 0,
+		Text = "Tentar novamente", TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium,
+		TextSize = 9, AutoButtonColor = false, Visible = false, ZIndex = 14}, viewport)
+	Util.Corner(controls.Reload, 10); UI.TouchFeedback(controls.Reload)
+	controls.Panel, controls.Stage, controls.Viewport, controls.Detail = panel, stage, viewport, detail
+	controls.PreviewHint = previewHint
+	return panel, viewport, world, camera, previewHint
+end
+
+function UI.StyleBodyControl(control)
+	local slot = control.Record and control.Record.Card or control.Card
+	if control.Track then
+		UI.StyleAimControl(control)
+		control.Title.Text = "Preferência da região"
+		control.Description.Size = UDim2.new(1, control.Help and -62 or -24, 0, 24)
+		if control.Help then control.Help.Position = UDim2.new(1, -10, 0, 34) end
+	else
+		local height = math.max(88, math.floor(96 * Config.ControlScale + .5))
+		slot.Size = UDim2.new(slot.Size.X.Scale, slot.Size.X.Offset, 0, height)
+		control.Title.Position = UDim2.fromOffset(12, 8)
+		control.Title.Size = UDim2.new(1, control.Help and -118 or -82, 0, 30)
+		control.Title.TextWrapped = true; control.Title.TextYAlignment = Enum.TextYAlignment.Center
+		UI.SetReadableText(control.Title, 11)
+		control.Description.Position = UDim2.fromOffset(12, 46)
+		control.Description.Size = UDim2.new(1, -24, 0, 30)
+		control.Description.TextWrapped = true; control.Description.TextTruncate = Enum.TextTruncate.None
+		UI.SetReadableText(control.Description, 9)
+		control.Switch.Position = UDim2.new(1, -12, 0, 10)
+		if control.Help then control.Help.Position = UDim2.new(1, -66, 0, 10) end
+		for _, entry in ipairs(UI.ScalableControls) do
+			if entry.Card == slot then entry.BaseHeight = 96; entry.MinimumHeight = 88; break end
+		end
+	end
+	if control.Record then control.Record.OriginalSize = slot.Size end
+	return slot
+end
+
+function UI.LayoutBodyWorkspace(controls)
+	local panel = controls.Panel
+	if not Runtime.Alive or not panel.Parent then return end
+	local wide = panel.AbsoluteSize.X >= 390
+	local narrow = panel.AbsoluteSize.X < 285
+	panel.Size = UDim2.new(1, 0, 0, wide and 296 or narrow and 456 or 400)
+	controls.Stage.Position = UDim2.fromOffset(10, 48)
+	controls.Stage.Size = wide and UDim2.new(.45, -14, 1, -58) or UDim2.new(1, -20, 0, narrow and 186 or 196)
+	controls.Detail.Position = wide and UDim2.new(.45, 6, 0, 48) or UDim2.fromOffset(12, narrow and 246 or 256)
+	controls.Detail.Size = wide and UDim2.new(.55, -18, 1, -58) or UDim2.new(1, -24, 1, narrow and -256 or -266)
+	controls.SyncStatus.Visible = wide
+	controls.Status.Position = wide and UDim2.fromOffset(2, 75) or UDim2.fromOffset(2, 71)
+	controls.RegionEnabled.Card.Position = wide and UDim2.fromOffset(0, 122) or UDim2.fromOffset(0, 94)
+	controls.RegionEnabled.Card.Size = UDim2.new(wide and 1 or .52, wide and 0 or -4, 0, 38)
+	controls.RuleSummary.Visible = wide
+	controls.RuleSummary.Position = wide and UDim2.fromOffset(2, 169) or UDim2.fromOffset(2, 138)
+	controls.Recenter.Position = wide and UDim2.new(0, 0, 1, -32) or UDim2.new(.52, 4, 0, 98)
+	controls.Recenter.Size = wide and UDim2.new(1, 0, 0, 30) or UDim2.new(.48, -4, 0, 30)
+	if narrow then
+		controls.RegionEnabled.Card.Size = UDim2.new(1, 0, 0, 38)
+		controls.Recenter.Position = UDim2.fromOffset(0, 146)
+		controls.Recenter.Size = UDim2.new(1, 0, 0, 30)
+	end
+	if controls.PartPicker.RefreshChoiceIndicator then controls.PartPicker.RefreshChoiceIndicator() end
+	for _, name in ipairs({"Exact", "Strict", "MultiPoint", "Fallback", "LongRange", "Weight"}) do
+		if controls[name] then UI.StyleBodyControl(controls[name]) end
+	end
+	for _, control in pairs(controls.AllowedRegions or {}) do UI.StyleBodyControl(control) end
+end
+
+function UI.RefreshBodyWorkspace(controls)
+	local region = UI.BodyRegionLabels[controls.SelectedRegion] or "Região"
+	controls.Title.Text = UI.BodyPartLabel(controls.SelectedPartName)
+	controls.Status.Text = "Região: " .. region
+	controls.SyncStatus.Text = "Usada também na aba Mira."
+	controls.RegionChip.Text = "Ativa"
+	controls.RegionEnabled.Title.TextTransparency = 0
+	controls.RuleSummary.Text = Config.StrictBodyRegion
+		and (Config.BodyFallback and "Prioriza esta parte. Se precisar, tenta as regiões liberadas." or "Usa somente esta parte enquanto estiver disponível.")
+		or "Compara as regiões liberadas e escolhe o melhor ponto."
+	controls.Weight.Description.Text = Config.StrictBodyRegion
+		and "A prioridade vem antes deste peso."
+		or "Maior dá preferência a esta região."
+	controls.Fallback.Description.Text = Config.StrictBodyRegion
+		and "Se a principal não servir, procura nas regiões liberadas."
+		or "Com a prioridade desligada, já compara as regiões liberadas."
+	controls.LongRange.Description.Text = controls.SelectedRegion == "Head" and Config.ExactBodyAim
+		and "Evita mirar baixo na cabeça de longe."
+		or "Só atua com Cabeça e Mirar no centro ligados."
+	UI.LayoutBodyWorkspace(controls)
+end
+
 function Pages.BuildBody()
 	local page = UI.CreatePage("Body")
 	local controls = {
@@ -10335,136 +10539,7 @@ function Pages.BuildBody()
 		RigButtons = {},
 	}
 
-	UI.Section(
-		page,
-		"ONDE MIRAR",
-		"Escolha R6 ou R15 e toque na parte do boneco que a mira deve priorizar."
-	)
-
-	local panel = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 360),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BorderSizePixel = 0,
-	}, page)
-	Util.Corner(panel, 18)
-	Util.GlassGradient(
-		panel,
-		Color3.fromRGB(23, 24, 33),
-		Color3.fromRGB(9, 11, 17),
-		0.04,
-		0.01,
-		90
-	)
-	Util.Stroke(panel, Theme.BorderInner, 0.58, 1)
-	Util.InnerHighlight(panel, 15, 0.90)
-
-	local viewport = Util.New("ViewportFrame", {
-		Position = UDim2.fromOffset(12, 12),
-		Size = UDim2.new(0.48, -18, 1, -24),
-		BackgroundColor3 = Color3.fromRGB(14, 15, 19),
-		BorderSizePixel = 0,
-		Ambient = Color3.fromRGB(215, 215, 220),
-		LightColor = Color3.fromRGB(255, 255, 255),
-		LightDirection = Vector3.new(-0.5, -1, -0.6),
-		ClipsDescendants = true,
-	}, panel)
-	Util.Corner(viewport, 16)
-	Util.Stroke(viewport, Theme.BorderInner, 0.58, 1)
-	Util.InnerHighlight(viewport, 12, 0.91, 7)
-
-	local world = Util.New("WorldModel", {}, viewport)
-
-	local camera = Instance.new("Camera")
-	camera.CFrame = CFrame.new(0, 2.4, 7.2) * CFrame.Angles(0, math.rad(180), 0)
-	camera.Parent = viewport
-	viewport.CurrentCamera = camera
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 11),
-		Size = UDim2.new(1, -28, 0, 19),
-		BackgroundTransparency = 1,
-		Text = "BONECO DE TESTE",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 8,
-	}, viewport)
-
-	local rigSelector = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 32),
-		Size = UDim2.new(1, -20, 0, 32),
-		BackgroundColor3 = Theme.Chip,
-		BackgroundTransparency = 0.04,
-		BorderSizePixel = 0,
-		ZIndex = 12,
-	}, viewport)
-	Util.New("UISizeConstraint", {
-		MinSize = Vector2.new(100, 32),
-		MaxSize = Vector2.new(184, 32),
-	}, rigSelector)
-	Util.Corner(rigSelector, 999)
-	Util.Stroke(rigSelector, Theme.BorderInner, 0.56, 1)
-	Util.Sheen(rigSelector, 0.08)
-	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 3),
-		PaddingRight = UDim.new(0, 3),
-		PaddingTop = UDim.new(0, 3),
-		PaddingBottom = UDim.new(0, 3),
-	}, rigSelector)
-	Util.New("UIGridLayout", {
-		CellSize = UDim2.new(0.5, -2, 1, 0),
-		CellPadding = UDim2.fromOffset(4, 0),
-		FillDirectionMaxCells = 2,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, rigSelector)
-
-	for index, rigName in ipairs({"R6", "R15"}) do
-		local button = Util.New("TextButton", {
-			BackgroundColor3 = Theme.Card,
-			BackgroundTransparency = 0.08,
-			BorderSizePixel = 0,
-			Text = rigName,
-			TextColor3 = Theme.Sub,
-			Font = Enum.Font.GothamBold,
-			TextSize = 8,
-			AutoButtonColor = false,
-			LayoutOrder = index,
-			ZIndex = 13,
-		}, rigSelector)
-		Util.Corner(button, 999)
-		local stroke = Util.Stroke(button, Theme.BorderSoft, 0.64, 1)
-		UI.TouchFeedback(button)
-		controls.RigButtons[rigName] = {
-			Button = button,
-			Stroke = stroke,
-		}
-	end
-
-	local previewHint = Util.New("TextLabel", {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -10),
-		Size = UDim2.new(1, -24, 0, 27),
-		BackgroundColor3 = Theme.Chip,
-		BackgroundTransparency = 0.08,
-		BorderSizePixel = 0,
-		Text = "Toque em uma parte  •  Arraste para girar",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		ZIndex = 12,
-	}, viewport)
-
-	Util.Corner(previewHint, 11)
-	Util.Sheen(previewHint, 0.08)
-	Util.Stroke(
-		previewHint,
-		Theme.BorderSoft,
-		0.35,
-		1
-	)
-	Util.FitText(previewHint, 6, 8)
+	local panel, viewport, world, camera, previewHint = UI.CreateBodyWorkspace(page, controls)
 
 	local Preview = {
 		Model = nil,
@@ -10535,7 +10610,7 @@ function Pages.BuildBody()
 	for _, profile in pairs(BodyRigProfiles) do
 		if type(profile) == "table" and profile.Parts then
 			for _, entry in ipairs(profile.Parts) do
-				PartLabels[entry.Name] = entry.Label
+				PartLabels[entry.Name] = UI.BodyPartLabel(entry.Name)
 				PartToRegion[entry.Name] = entry.Region
 			end
 		end
@@ -10812,8 +10887,8 @@ function Pages.BuildBody()
 		-- margin makes every limb visible without making touch selection vague.
 		local distance =
 			math.max(
-				verticalDistance * 1.88,
-				horizontalDistance * 1.88,
+				verticalDistance * 1.32,
+				horizontalDistance * 1.32,
 				9.5
 			)
 
@@ -10970,6 +11045,8 @@ function Pages.BuildBody()
 			return
 		end
 
+		controls.Reload.Visible = false
+		previewHint.Text = "Carregando boneco…"
 		Preview.LoadGeneration += 1
 		local generation = Preview.LoadGeneration
 
@@ -10988,14 +11065,16 @@ function Pages.BuildBody()
 		end
 
 		if not model then
+			clearWorld()
+			controls.Reload.Visible = true
 			previewHint.Text =
-				"Boneco indisponível. Renasça para tentar novamente."
+				"Prévia indisponível. Use a lista."
 			previewHint.TextColor3 = Theme.Warning
 			return
 		end
 
 		clearWorld()
-		previewHint.Text = "Toque em uma parte  •  Arraste para girar"
+		previewHint.Text = "Toque para escolher · Arraste para girar"
 		previewHint.TextColor3 = Theme.Sub
 
 		model.Name = "PreviewCharacter"
@@ -11039,6 +11118,7 @@ function Pages.BuildBody()
 
 	for rigName, control in pairs(controls.RigButtons) do
 		control.Button.MouseButton1Click:Connect(function()
+			if not Runtime.Alive or State.UI.LayoutEditMode then return end
 			if controls.RigMode == rigName then
 				return
 			end
@@ -11352,6 +11432,7 @@ function Pages.BuildBody()
 	end
 
 	clickSurface.InputBegan:Connect(function(input)
+		if not Runtime.Alive or not page.Visible or State.UI.LayoutEditMode or State.UI.ActiveChoiceMenu then return end
 		if input.UserInputType ~= Enum.UserInputType.Touch
 			and input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 
@@ -11410,223 +11491,37 @@ function Pages.BuildBody()
 		Preview.DragStart = nil
 		Preview.DragMoved = false
 
-		if shouldSelect then
+		if shouldSelect and Runtime.Alive and page.Visible and not State.UI.ActiveChoiceMenu then
 			selectPartAt(position)
 		end
 	end))
 
 
-	local detail = Util.New("Frame", {
-		Position = UDim2.new(0.48, 2, 0, 12),
-		Size = UDim2.new(0.52, -14, 1, -24),
-		BackgroundColor3 = Theme.Card,
-		BackgroundTransparency = 0.03,
-		BorderSizePixel = 0,
-	}, panel)
-	Util.Corner(detail, 16)
-	Util.Sheen(detail, 0.07)
-	Util.Stroke(detail, Theme.BorderInner, 0.58, 1)
-	Util.InnerHighlight(detail, 12, 0.91)
-
-	local bodyLayoutMode = nil
-	local function refreshBodyPanelLayout()
-		local sideBySide = panel.AbsoluteSize.X >= 520
-		local nextMode = sideBySide and "SIDE" or "STACK"
-		if bodyLayoutMode == nextMode then
-			return
-		end
-
-		bodyLayoutMode = nextMode
-		if sideBySide then
-			panel.Size = UDim2.new(1, 0, 0, 360)
-			viewport.Position = UDim2.fromOffset(12, 12)
-			viewport.Size = UDim2.new(0.48, -18, 1, -24)
-			detail.Position = UDim2.new(0.48, 2, 0, 12)
-			detail.Size = UDim2.new(0.52, -14, 1, -24)
-		else
-			panel.Size = UDim2.new(1, 0, 0, 640)
-			viewport.Position = UDim2.fromOffset(12, 12)
-			viewport.Size = UDim2.new(1, -24, 0, 290)
-			detail.Position = UDim2.fromOffset(12, 314)
-			detail.Size = UDim2.new(1, -24, 0, 314)
-		end
-
-		schedulePreviewFrame()
-	end
-
-	panel:GetPropertyChangedSignal("AbsoluteSize"):
-		Connect(refreshBodyPanelLayout)
-	task.defer(refreshBodyPanelLayout)
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 10),
-		Size = UDim2.new(0.48, -4, 0, 18),
-		BackgroundTransparency = 1,
-		Text = "PARTE ESCOLHIDA",
-		TextColor3 = Theme.Dim,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, detail)
-
-	controls.Title = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 31),
-		Size = UDim2.new(1, -28, 0, 27),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 10,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, detail)
-	Util.FitText(controls.Title, 7, 12)
-
-	controls.Status = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 59),
-		Size = UDim2.new(1, -28, 0, 22),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, detail)
-	Util.FitText(controls.Status, 7, 10)
-
-	controls.RegionChip = Util.New("TextLabel", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 10),
-		Size = UDim2.new(0.48, 0, 0, 25),
-		BackgroundColor3 = Theme.Chip,
-		BorderSizePixel = 0,
-		Text = "PRINCIPAL",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-	}, detail)
-	Util.FitText(controls.RegionChip, 7, 10)
-
-	Util.Corner(
-		controls.RegionChip,
-		999
-	)
-
-	controls.SyncStatus = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(14, 88),
-		Size = UDim2.new(1, -28, 0, 31),
-		BackgroundColor3 = Theme.CardActive,
-		BorderSizePixel = 0,
-		Text = "USADO EM TODAS AS ABAS",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 9,
-	}, detail)
-	Util.Corner(controls.SyncStatus, 999)
-	Util.Gradient(
-		controls.SyncStatus,
-		Theme.AccentSoft,
-		Theme.AccentDeep,
-		90
-	)
-	Util.Stroke(controls.SyncStatus, Theme.Accent2, 0.26, 1)
-	Util.FitText(controls.SyncStatus, 7, 11)
-
-	controls.RegionEnabled =
-		UI.CreateToggle(
-			detail,
-			"Região principal",
-			"A região escolhida fica sempre ativa. Toque em outra parte para mudar.",
-			{Organizable = false, Scalable = false}
-		)
-
-	controls.RegionEnabled.Card.Position =
-		UDim2.fromOffset(
-			14,
-			128
-		)
-
-	controls.RegionEnabled.Card.Size =
-		UDim2.new(
-			1,
-			-28,
-			0,
-			76
-		)
-
-	controls.Weight = UI.CreateSlider(
-		detail,
-		"Preferência desta região",
-		0,
-		100,
-		Config.BodyRegionWeights[controls.SelectedRegion] or 100,
-		"%",
-		function(value)
-			Config.BodyRegionWeights[controls.SelectedRegion] =
-				math.floor(value + 0.5)
-			Aim.MarkAssistantCustomized()
-		end,
-		{
-			Organizable = false,
-			Scalable = false,
-			Description = "Quanto maior, maior a preferência por esta região.",
-			Help = "O peso compara as regiões disponíveis. Com Priorizar a parte escolhida ligado, a parte principal vem antes desses pesos.",
-		}
-	)
-	controls.Weight.Card.Position = UDim2.fromOffset(14, 210)
-	controls.Weight.Card.Size = UDim2.new(1, -28, 0, 91)
-
-	local options = UI.CreateExpandableGroup(
-		page,
-		"AJUSTES AVANÇADOS",
-		"Abra para escolher o que acontece quando a parte fica coberta.",
-		false
-	)
-
-	controls.Exact = UI.CreateToggle(
-		options,
-		"Manter no centro",
-		"Mantém a mira no centro da parte escolhida."
-	)
-
-	controls.Strict = UI.CreateToggle(
-		options,
-		"Priorizar a parte escolhida",
-		"Tenta sua parte principal antes de procurar outra."
-	)
-
-	controls.MultiPoint = UI.CreateToggle(
-		options,
-		"Buscar outro ponto visível",
-		"Se o centro estiver coberto, tenta outro ponto da mesma parte."
-	)
-
-	controls.Fallback = UI.CreateToggle(
-		options,
-		"Tentar outra parte",
-		"Se a principal não estiver disponível, tenta outra parte liberada.",
-		{
-			Help = "Essa opção trabalha junto com Priorizar a parte escolhida. Se o alvo principal estiver coberto, a mira tenta outra parte que você deixou disponível.",
-		}
-	)
-
-	controls.LongRange = UI.CreateToggle(
-		options,
-		"Corrigir altura da cabeça",
-		"Evita mirar baixo na cabeça quando o jogador está muito longe.",
-		{
-			Help = "Só faz diferença quando Cabeça está escolhida e Manter no centro está ativado. A opção Compensar longa distância, na aba Mira, controla a força geral do movimento.",
-		}
-	)
-
+	local basic = UI.Stack(page)
+	basic.LayoutOrder = 1
+	UI.AimText(basic, "Comportamento", UDim2.new(), UDim2.new(1, 0, 0, 26), 11, Theme.Text, true)
+	controls.Exact = UI.CreateToggle(basic, "Manter no centro", "Mantém a mira no centro da parte escolhida.")
+	controls.Exact.Title.Text = "Mirar no centro"
+	controls.Strict = UI.CreateToggle(basic, "Priorizar a parte escolhida", "Tenta sua parte principal antes de procurar outra.")
+	controls.Strict.Title.Text = "Priorizar esta parte"
+	local options, advanced = UI.CreateExpandableGroup(page, "Ajustes avançados", "Pontos, regiões e distância.", false)
+	controls.Advanced = advanced
+	advanced.Shell.LayoutOrder = 2
+	controls.MultiPoint = UI.CreateToggle(options, "Buscar outro ponto visível", "Se o centro estiver coberto, tenta outro ponto da mesma parte.")
+	controls.MultiPoint.Title.Text = "Buscar ponto visível"
+	controls.Fallback = UI.CreateToggle(options, "Tentar outra parte", "Se a principal não servir, procura nas regiões liberadas.", {
+		Help = "Com Priorizar esta parte ligado, a mira começa pela parte escolhida. Se não conseguir usá-la, esta opção permite tentar as regiões que você liberou abaixo.",
+	})
+	controls.Fallback.Title.Text = "Usar outra parte"
+	UI.AimText(options, "Regiões liberadas", UDim2.new(), UDim2.new(1, 0, 0, 28), 11, Theme.Text, true)
 	controls.AllowedRegions = {}
 	for _, regionName in ipairs(BodyRegionOrder) do
 		local selectedRegion = regionName
-		local regionLabel = BodyRegions[selectedRegion].Label
-		local control = UI.CreateToggle(options, "Usar " .. string.lower(regionLabel),
-			"Permite usar esta região quando a mira procurar outra parte.",
+		local control = UI.CreateToggle(options, UI.BodyRegionLabels[regionName], "Disponível para buscar outro ponto.",
 			{Id = "body.allowed_region." .. selectedRegion})
 		controls.AllowedRegions[selectedRegion] = control
 		control.Card.MouseButton1Click:Connect(function()
+			if not Runtime.Alive or State.UI.LayoutEditMode then return end
 			if selectedRegion == Config.PrimaryBodyRegion then
 				UI.Toast("A região principal fica sempre disponível. Escolha outra parte para poder desativá-la.")
 				return
@@ -11637,8 +11532,41 @@ function Pages.BuildBody()
 			controls.Refresh()
 		end)
 	end
+	controls.Weight = UI.CreateSlider(options, "Preferência desta região", 0, 100,
+		Config.BodyRegionWeights[controls.SelectedRegion] or 100, "%", function(value)
+			Config.BodyRegionWeights[controls.SelectedRegion] = math.floor(value + .5)
+			Aim.MarkAssistantCustomized()
+		end, {Organizable = false, Scalable = false, Description = "Maior dá preferência a esta região.",
+			Help = "Este peso é da região que você escolheu no boneco ou na lista. Ele ajuda a comparar os pontos disponíveis. Com Priorizar esta parte ligado, a parte principal vem antes do peso."})
+	controls.LongRange = UI.CreateToggle(options, "Corrigir altura da cabeça", "Evita mirar baixo na cabeça de longe.", {
+		Help = "Só atua quando Cabeça está escolhida e Mirar no centro está ligado. Compensar distância, na aba Mira, controla a força geral do movimento.",
+	})
+	controls.LongRange.Title.Text = "Corrigir cabeça"
+	for index, control in ipairs({controls.Exact, controls.Strict}) do
+		local slot = UI.StyleBodyControl(control); slot.LayoutOrder = index
+	end
+	local order = {controls.MultiPoint, controls.Fallback}
+	for _, regionName in ipairs(BodyRegionOrder) do order[#order + 1] = controls.AllowedRegions[regionName] end
+	order[#order + 1] = controls.Weight; order[#order + 1] = controls.LongRange
+	for index, control in ipairs(order) do
+		local slot = UI.StyleBodyControl(control); slot.LayoutOrder = index * 10
+	end
+	for _, child in ipairs(options:GetChildren()) do
+		if child:IsA("TextLabel") then child.LayoutOrder = 25 end
+	end
+	UI.BindChoiceMenu(controls.PartPicker, "Parte principal", function()
+		local choices = {}
+		local profile = BodyRigProfiles[controls.RigMode] or BodyRigProfiles.R15
+		for _, entry in ipairs(profile.Parts) do
+			choices[#choices + 1] = {Value = entry.Name, Label = UI.BodyPartLabel(entry.Name)}
+		end
+		return choices
+	end, function() return Config.PrimaryBodyPartName end, function(value)
+		UI.SetPrimaryBodyPart(value, {RigMode = controls.RigMode, Reason = "Parte escolhida pela lista"})
+	end)
 
 	function controls.Refresh()
+		if not Runtime.Alive or not page.Parent then return end
 		local rigName, partName, region = BodyRigProfiles.Normalize(
 			Config.BodyRigMode,
 			Config.PrimaryBodyPartName,
@@ -11710,13 +11638,14 @@ function Pages.BuildBody()
 		UI.SetToggle(controls.Fallback, Config.BodyFallback)
 		UI.SetToggle(controls.LongRange, Config.LongRangeCorrection)
 		UI.SetControlAvailable(controls.RegionEnabled, false,
-			"A região principal fica sempre disponível. Ajuste as outras regiões em Avançado.")
+			"A região principal fica sempre disponível.")
 		for regionName, control in pairs(controls.AllowedRegions) do
 			UI.SetToggle(control, Config.BodyRegionEnabled[regionName] == true)
 			UI.SetControlAvailable(control, regionName ~= Config.PrimaryBodyRegion,
 				"A região principal fica sempre disponível.")
 		end
 
+		UI.RefreshBodyWorkspace(controls)
 		updatePreviewOverlay()
 	end
 
@@ -11729,7 +11658,7 @@ function Pages.BuildBody()
 				Config.BodyRegionEnabled or {}
 
 			if Config.PrimaryBodyRegion == region then
-				UI.Toast("A região principal fica sempre disponível. Veja as outras regiões em Avançado.")
+				UI.Toast("A região principal fica sempre disponível. Veja as outras regiões nos ajustes avançados.")
 				return
 			else
 				Config.BodyRegionEnabled[region] =
@@ -11745,6 +11674,7 @@ function Pages.BuildBody()
 		end)
 
 	controls.Exact.Card.MouseButton1Click:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		Config.ExactBodyAim = not Config.ExactBodyAim
 		Aim.MarkAssistantCustomized()
 		Aim.ClearCurrentTarget("Modo de precisão alterado")
@@ -11752,6 +11682,7 @@ function Pages.BuildBody()
 	end)
 
 	controls.Strict.Card.MouseButton1Click:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		Config.StrictBodyRegion = not Config.StrictBodyRegion
 		Aim.MarkAssistantCustomized()
 		Aim.ClearCurrentTarget("Prioridade corporal alterada")
@@ -11759,6 +11690,7 @@ function Pages.BuildBody()
 	end)
 
 	controls.MultiPoint.Card.MouseButton1Click:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		Config.MultiPointBodyAim = not Config.MultiPointBodyAim
 		Aim.MarkAssistantCustomized()
 		Aim.ClearCurrentTarget("Pontos de mira alterados")
@@ -11766,6 +11698,7 @@ function Pages.BuildBody()
 	end)
 
 	controls.Fallback.Card.MouseButton1Click:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		Config.BodyFallback = not Config.BodyFallback
 		Aim.MarkAssistantCustomized()
 		Aim.ClearCurrentTarget("Tentativa em outra parte foi alterada")
@@ -11773,6 +11706,7 @@ function Pages.BuildBody()
 	end)
 
 	controls.LongRange.Card.MouseButton1Click:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		Config.LongRangeCorrection = not Config.LongRangeCorrection
 		Aim.MarkAssistantCustomized()
 		controls.Refresh()
@@ -11819,6 +11753,33 @@ function Pages.BuildBody()
 	end
 
 	State.UI.ReloadBodyPreview = loadCharacter
+
+
+	controls.Recenter.Activated:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
+		Preview.DragInput, Preview.DragStart, Preview.DragMoved = nil, nil, false
+		Preview.Rotation = 180
+		if Preview.Model then placeModelFront(Preview.Model); schedulePreviewFrame() end
+	end)
+	controls.Reload.Activated:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode or not controls.Reload.Visible then return end
+		controls.Reload.Visible = false
+		task.defer(loadCharacter)
+	end)
+	local lastWidth = -1
+	panel:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if panel.AbsoluteSize.X ~= lastWidth then
+			lastWidth = panel.AbsoluteSize.X
+			UI.LayoutBodyWorkspace(controls)
+			schedulePreviewFrame()
+		end
+	end)
+	page:GetPropertyChangedSignal("Visible"):Connect(function()
+		if page.Visible then controls.Refresh()
+		else Preview.DragInput, Preview.DragStart, Preview.DragMoved = nil, nil, false end
+	end)
+	State.UI.BodyControls = controls
+	controls.Preview = Preview
 
 	State.UI.RefreshBodyControls = controls.Refresh
 	controls.Refresh()
@@ -16450,4 +16411,4 @@ task.defer(function()
 	end
 end)
 
-print("[VisionX V34.7.0 - Nova aba Mira] carregado")
+print("[VisionX V34.8.0 - Corpo e seletores] carregado")
