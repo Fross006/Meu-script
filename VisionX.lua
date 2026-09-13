@@ -1,4 +1,4 @@
--- V35.0.0 — boas-vindas com progresso real de inicialização e animação da logo.
+-- V35.0.1 — boas-vindas com progresso real de inicialização e animação da logo.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -1576,8 +1576,14 @@ function Loading.Round(object, radius)
 end
 
 function Loading.Stroke(object, color, thickness, transparency)
-	return Loading.New("UIStroke", {Color = color, Thickness = thickness or 1,
-		Transparency = transparency or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, object)
+	local stroke = Loading.New("UIStroke", {
+		Color = color, Thickness = thickness or 1, Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border, LineJoinMode = Enum.LineJoinMode.Round,
+	}, object)
+	-- Centered borders keep the curve and its round tips on the same radius.
+	-- Older clients retain their existing border renderer.
+	local centered = pcall(function() stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center end)
+	return stroke, centered
 end
 
 function Loading.Text(parent, text, x, y, w, h, size, color, bold, centered)
@@ -1600,54 +1606,108 @@ function Loading.Line(parent, x1, y1, x2, y2, thickness, color)
 	return line
 end
 
-function Loading.Arc(parent, diameter, first, last, color, thickness, segments)
-	local arc = Loading.New("Frame", {BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
-		Size = UDim2.fromOffset(diameter, diameter)}, parent)
-	local radius = diameter/2
-	for i = 0, segments - 1 do
-		local a = math.rad(first + (last-first)*i/segments)
-		local b = math.rad(first + (last-first)*(i+1)/segments)
-		Loading.Line(arc, radius + math.cos(a)*radius, radius + math.sin(a)*radius,
-			radius + math.cos(b)*radius, radius + math.sin(b)*radius, thickness, color)
+function Loading.Outline(parent, x, y, width, height, radius, color, thickness)
+	local shape = Loading.New("Frame", {
+		Position = UDim2.fromOffset(x,y), Size = UDim2.fromOffset(width,height),
+		BackgroundTransparency = 1,
+	}, parent)
+	Loading.Round(shape,radius)
+	local stroke = Loading.Stroke(shape,color,thickness or 2)
+	return shape, stroke
+end
+
+function Loading.Arc(parent, diameter, first, last, color, thickness)
+	local arc = Loading.New("Frame", {
+		Name = "SmoothArc", BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(.5,.5), Position = UDim2.fromScale(.5,.5),
+		Size = UDim2.fromOffset(diameter,diameter),
+	}, parent)
+	local span = math.clamp(last-first,2,358)
+	local curve = Loading.New("Frame", {
+		Name = "CircularStroke", BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(.5,.5), Position = UDim2.fromScale(.5,.5),
+		Size = UDim2.fromScale(1,1), Rotation = first+span/2,
+	}, arc)
+	Loading.New("UICorner",{CornerRadius = UDim.new(.5,0)},curve)
+	local stroke, centered = Loading.Stroke(curve,color,thickness)
+	local radius = diameter/2 + (centered and 0 or thickness/2)
+	local halfAngle = math.rad(span/2)
+	local cutoff = math.clamp(.5+radius*math.cos(halfAngle)/diameter,.001,.999)
+	local feather = math.min(.35/diameter,cutoff/2,(1-cutoff)/2)
+	-- One native circle, cut by a transparency mask. No polygonal line pieces.
+	Loading.New("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,1),
+			NumberSequenceKeypoint.new(cutoff-feather,1),
+			NumberSequenceKeypoint.new(cutoff+feather,0),
+			NumberSequenceKeypoint.new(1,0),
+		}),
+	}, stroke)
+	for _, angle in ipairs({-halfAngle,halfAngle}) do
+		local tip = Loading.New("Frame", {
+			Name = "RoundTip", AnchorPoint = Vector2.new(.5,.5),
+			Position = UDim2.fromOffset(diameter/2+math.cos(angle)*radius,diameter/2+math.sin(angle)*radius),
+			Size = UDim2.fromOffset(thickness,thickness), BackgroundColor3 = color,
+		}, curve)
+		Loading.New("UICorner",{CornerRadius = UDim.new(.5,0)},tip)
 	end
 	return arc
 end
 
 function Loading.Icon(parent, index)
-	local icon = Loading.New("Frame", {BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(18, 15), Size = UDim2.fromOffset(32, 32)}, parent)
-	local ink = {}
-	local function line(x1, y1, x2, y2)
-		ink[#ink+1] = {Loading.Line(icon, x1, y1, x2, y2, 2, Loading.Colors.Text), "BackgroundColor3"}
+	local icon = Loading.New("Frame", {
+		Name = "ComponentIcon", BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(18,15), Size = UDim2.fromOffset(32,32),
+	}, parent)
+	local ink, color = {}, Loading.Colors.Text
+	local function outline(host,x,y,w,h,radius)
+		local shape,stroke = Loading.Outline(host,x,y,w,h,radius,color,2)
+		ink[#ink+1] = {stroke,"Color"}
+		return shape
 	end
-	local function circle(x, y, diameter)
-		local ring = Loading.New("Frame", {BackgroundTransparency = 1,
-			Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(diameter, diameter)}, icon)
-		Loading.Round(ring, 99)
-		ink[#ink+1] = {Loading.Stroke(ring, Loading.Colors.Text, 2), "Color"}
+	local function circle(x,y,diameter)
+		return outline(icon,x,y,diameter,diameter,diameter/2)
+	end
+	local function line(x1,y1,x2,y2)
+		ink[#ink+1] = {Loading.Line(icon,x1,y1,x2,y2,2,color),"BackgroundColor3"}
+	end
+	local function shoulders(x,y,width,height)
+		local clip = Loading.New("Frame", {Name = "Shoulders", BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(x,y), Size = UDim2.fromOffset(width,height), ClipsDescendants = true},icon)
+		outline(clip,1,1,width-2,height+10,(width-2)/2)
 	end
 	if index == 1 then
-		line(3,4,29,4); line(29,4,29,28); line(29,28,3,28); line(3,28,3,4)
-		line(3,11,29,11); line(20,11,20,28); line(8,17,14,17); line(8,23,14,23)
+		-- A rounded window with a sidebar and two content rows.
+		outline(icon,3,5,26,23,4)
+		line(4,12,28,12); line(13,13,13,27)
+		line(18,18,24,18); line(18,23,24,23)
 	elseif index == 2 then
-		circle(5,5,22); line(16,0,16,9); line(16,23,16,32); line(0,16,9,16); line(23,16,32,16)
-	elseif index == 3 or index == 4 then
-		circle(index == 4 and 5 or 10, 3, 12)
-		line(4,29,4,24); line(4,24,8,21); line(8,21,22,21); line(22,21,26,24); line(26,24,26,29)
-		if index == 4 then line(23,4,27,7); line(27,7,27,12); line(27,12,24,15); line(29,21,32,25); line(32,25,32,29) end
+		circle(7,7,18)
+		line(16,2,16,9); line(16,23,16,30)
+		line(2,16,9,16); line(23,16,30,16)
+	elseif index == 3 then
+		circle(11,3,10)
+		shoulders(4,18,24,12)
+	elseif index == 4 then
+		-- Two complete silhouettes, without intersecting strokes.
+		circle(4,6,8); circle(20,6,8)
+		shoulders(1,19,14,11); shoulders(17,19,14,11)
 	elseif index == 5 then
-		circle(11,11,10)
-		line(1,16,8,8); line(8,8,16,5); line(16,5,24,8); line(24,8,31,16)
-		line(31,16,24,24); line(24,24,16,27); line(16,27,8,24); line(8,24,1,16)
+		-- The almond outline consists of two clipped circular curves.
+		local top = Loading.New("Frame", {Name = "UpperEyelid", BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(1,7), Size = UDim2.fromOffset(30,9), ClipsDescendants = true},icon)
+		local bottom = Loading.New("Frame", {Name = "LowerEyelid", BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(1,16), Size = UDim2.fromOffset(30,9), ClipsDescendants = true},icon)
+		outline(top,-1.25,1,32.5,32.5,16.25)
+		outline(bottom,-1.25,-24.5,32.5,32.5,16.25)
+		circle(12,12,8)
 	else
-		circle(6,6,20); circle(12,12,8)
-		for i = 0, 7 do
-			local angle = i*math.pi/4
-			line(16+math.cos(angle)*10, 16+math.sin(angle)*10, 16+math.cos(angle)*15, 16+math.sin(angle)*15)
-		end
+		-- Recognizable settings sliders, with clear gaps around the handles.
+		line(6,3,6,9); line(6,15,6,29); circle(3,9,6)
+		line(16,3,16,18); line(16,24,16,29); circle(13,18,6)
+		line(26,3,26,5); line(26,11,26,29); circle(23,5,6)
 	end
-	return icon, ink
+	return icon,ink
 end
 
 function Loading.Alpha(session, object, property, value)
@@ -1748,7 +1808,7 @@ function Loading.Tick(session, dt)
 	dt = math.clamp(dt, 0, .1)
 	session.Time += dt
 	if session.Phase ~= "failed" then
-		session.Arc.Rotation = math.sin(session.Time*math.pi/1.05)*86
+		session.Arc.Rotation = (session.Time*120)%360
 		for _, row in ipairs(session.Rows) do
 			if row.State == "loading" then row.Spinner.Rotation = (session.Time*240)%360 end
 		end
@@ -1795,7 +1855,7 @@ function Loading.Create()
 		Position = UDim2.fromScale(.5,.5), BackgroundColor3 = c.Panel, BackgroundTransparency = .035,
 		Active = true, ZIndex = 2}, session.Root)
 	Loading.Round(session.Panel, 30)
-	Loading.Stroke(session.Panel, c.Red, 1.3, .60)
+	Loading.Stroke(session.Panel, c.Red, 1, .52)
 	Loading.New("UIGradient", {Color = ColorSequence.new(Color3.new(1,1,1), Color3.fromRGB(175,185,205)), Rotation = 110}, session.Panel)
 	session.Scale = Loading.New("UIScale", {}, session.Panel)
 	session.Left = Loading.New("Frame", {BackgroundTransparency = 1}, session.Panel)
@@ -1807,7 +1867,7 @@ function Loading.Create()
 	local track = Loading.New("Frame", {AnchorPoint = Vector2.new(.5,.5), Position = UDim2.fromScale(.5,.5),
 		Size = UDim2.fromOffset(180,180), BackgroundTransparency = 1}, session.Logo)
 	Loading.Round(track, 999); Loading.Stroke(track, c.Border, 4, .28)
-	session.Arc = Loading.Arc(session.Logo, 180, -86, 10, c.Red, 4.5, 32)
+	session.Arc = Loading.Arc(session.Logo, 180, -86, 10, c.Red, 4)
 	local mark = Loading.New("Frame", {Name = "Mark", AnchorPoint = Vector2.new(.5,.5),
 		Position = UDim2.fromScale(.5,.5), Size = UDim2.fromOffset(108,108), BackgroundColor3 = c.Card}, session.Logo)
 	Loading.Round(mark, 23); Loading.Stroke(mark, c.Sub, 1.5, .56)
@@ -1838,7 +1898,7 @@ function Loading.Create()
 	for index, name in ipairs(Loading.Names) do
 		local row = {}
 		row.Card = Loading.New("Frame", {Name = name, BackgroundColor3 = c.Card, BackgroundTransparency = .2}, session.Right)
-		Loading.Round(row.Card,16); row.Stroke = Loading.Stroke(row.Card,c.Border,1.2,.6)
+		Loading.Round(row.Card,16); row.Stroke = Loading.Stroke(row.Card,c.Border,1,.6)
 		row.Icon, row.Ink = Loading.Icon(row.Card,index)
 		row.Label = Loading.Text(row.Card,name,68,0,0,62,18)
 		row.Label.Size = UDim2.new(1,-226,1,0)
@@ -1847,10 +1907,10 @@ function Loading.Create()
 		row.Indicator = Loading.New("Frame", {BackgroundTransparency = 1, Size = UDim2.fromOffset(24,24)}, row.Card)
 		row.Ring = Loading.New("Frame", {BackgroundTransparency = 1, Size = UDim2.fromScale(1,1)}, row.Indicator)
 		Loading.Round(row.Ring,99); row.RingStroke = Loading.Stroke(row.Ring,c.Border,2)
-		row.Spinner = Loading.Arc(row.Indicator,24,-80,150,c.Red,2.2,18)
+		row.Spinner = Loading.Arc(row.Indicator,24,-80,150,c.Red,2)
 		row.Check = Loading.New("Frame", {Size = UDim2.fromScale(1,1), BackgroundColor3 = c.Text}, row.Indicator)
 		Loading.Round(row.Check,99)
-		Loading.Line(row.Check,6,12,10,16,2.2,c.Panel); Loading.Line(row.Check,10,16,18,8,2.2,c.Panel)
+		Loading.Text(row.Check,"✓",0,0,24,24,17,c.Panel,true,true)
 		session.Rows[index] = row
 		Loading.PaintRow(session,index,"waiting")
 	end
@@ -16810,7 +16870,7 @@ local function InitializeVisionX()
 		if not Runtime.Alive or not State.UI.Root or not State.UI.Root.Parent then return end
 		State.UI.Root.Enabled = true
 		UI.SetWindowVisible(State.UI.Main, true)
-		print("[VisionX V35.0.0 - Boas-vindas] carregado")
+		print("[VisionX V35.0.1 - Boas-vindas] carregado")
 	end)
 end
 
