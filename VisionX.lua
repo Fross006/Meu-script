@@ -1,4 +1,4 @@
--- V34.6.1 — abertura e minimização contínuas, com movimento leve e fade gradual.
+-- V34.7.0 — aba Mira reorganizada, com controles legíveis e visual adaptado ao celular.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -5749,6 +5749,7 @@ function UI.ApplyControlScale(value)
 		end
 	end
 
+	if State.UI.RefreshAimLayout then State.UI.RefreshAimLayout() end
 	return Config.ControlScale
 end
 
@@ -9456,19 +9457,109 @@ end
 local RequestRelationStateRefresh
 local Pages = {}
 
+function UI.AimText(parent, text, position, size, fontSize, color, bold)
+	local label = UI.SettingsText(parent, text, position, size, fontSize, color, bold)
+	UI.SetReadableText(label, fontSize)
+	return label
+end
+
+function UI.StyleAimControl(control)
+	local card = control.Card
+	local slider = control.Track ~= nil
+	local cycle = not slider and control.Value ~= nil
+	local baseHeight = slider and 110 or 104
+	local minimumHeight = slider and 100 or 94
+	local slot = control.Record and control.Record.Card or card
+	slot.Size = UDim2.new(slot.Size.X.Scale, slot.Size.X.Offset, 0,
+		math.max(minimumHeight, math.floor(baseHeight * Config.ControlScale + 0.5)))
+	if control.Record then control.Record.OriginalSize = slot.Size end
+	for _, entry in ipairs(UI.ScalableControls) do
+		if entry.Card == slot then entry.BaseHeight = baseHeight; entry.MinimumHeight = minimumHeight; break end
+	end
+	card.BackgroundTransparency = 0.10
+	control.Title.Position = UDim2.fromOffset(12, 8)
+	control.Title.Size = UDim2.new(1, slider and -100 or cycle and (control.Help and -52 or -24) or -82, 0, 20)
+	control.Title.Font = Enum.Font.GothamMedium
+	UI.SetReadableText(control.Title, 11)
+	control.Description.Position = UDim2.fromOffset(12, cycle and 32 or 36)
+	control.Description.Size = UDim2.new(1, -24, 0, 24)
+	control.Description.TextWrapped = true
+	control.Description.TextTruncate = Enum.TextTruncate.None
+	UI.SetReadableText(control.Description, 9)
+	if slider then
+		control.Label.Position = UDim2.new(1, -12, 0, 6)
+		control.Label.Size = UDim2.fromOffset(68, 28)
+		UI.SetReadableText(control.Label, 11)
+		control.Decrease.Position = UDim2.new(0, 12, 1, -8)
+		control.Increase.Position = UDim2.new(1, -12, 1, -8)
+		control.Track.Parent.Position = UDim2.new(0, 48, 1, -8)
+	elseif cycle then
+		control.Value.AnchorPoint = Vector2.new(0, 1)
+		control.Value.Position = UDim2.new(0, 12, 1, -8)
+		control.Value.Size = UDim2.new(1, -24, 0, 26)
+		control.Value.BackgroundColor3 = Theme.Surface3
+		control.Value.TextColor3 = Theme.Accent2
+		control.Value.TextXAlignment = Enum.TextXAlignment.Left
+		UI.SetReadableText(control.Value, 10)
+		if not control.AimValuePadding then
+			control.AimValuePadding = Util.New("UIPadding", {
+				PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 25),
+			}, control.Value)
+			control.Chevron = UI.AimText(control.Value, "›", UDim2.new(1, -16, 0, 2),
+				UDim2.fromOffset(12, 20), 15, Theme.Sub)
+			control.Chevron.Rotation = 90
+		end
+	elseif control.Switch then
+		control.Switch.Position = UDim2.new(1, -12, 0, 7)
+	end
+	if control.Help then control.Help.Position = UDim2.new(1, -8, 0, 4) end
+	return slot.Size.Y.Offset
+end
+
+function UI.CreateAimSection(page, title, note, order)
+	local shell = Util.New("Frame", {
+		Name = "AAP_AimSection_" .. tostring(order), LayoutOrder = order,
+		Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, BorderSizePixel = 0,
+	}, page)
+	Util.New("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder}, shell)
+	local header = Util.New("Frame", {Size = UDim2.new(1, 0, 0, note and 38 or 22),
+		BackgroundTransparency = 1, LayoutOrder = -10}, shell)
+	UI.AimText(header, title, UDim2.fromOffset(2, 1), UDim2.new(1, -4, 0, 18), 11, Theme.Text, true)
+	if note then UI.AimText(header, note, UDim2.fromOffset(2, 23), UDim2.new(1, -4, 0, 14), 9, Theme.Sub) end
+	local grid = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1}, shell)
+	return grid, shell
+end
+
+function UI.CreateAimFOVPreview(parent)
+	local preview = Util.New("Frame", {Name = "AAP_AimFOVPreview", AnchorPoint = Vector2.new(1, .5),
+		Position = UDim2.new(1, -8, .5, 0), Size = UDim2.fromOffset(84, 84),
+		BackgroundColor3 = Theme.Surface2, BackgroundTransparency = .10, BorderSizePixel = 0}, parent)
+	Util.Corner(preview, 12)
+	local ring = Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5), Position = UDim2.new(.5, 0, 0, 32),
+		Size = UDim2.fromOffset(50, 50), BackgroundTransparency = 1, BorderSizePixel = 0}, preview)
+	Util.Corner(ring, 999)
+	local outline = Util.Stroke(ring, Theme.Accent2, .12, 1)
+	local inner = Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+		Size = UDim2.fromScale(.70, .70), BackgroundTransparency = 1, BorderSizePixel = 0}, ring)
+	Util.Corner(inner, 999); Util.Stroke(inner, Theme.Accent, .50, 1)
+	local function line(size)
+		return Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+			Size = size, BackgroundColor3 = Theme.Accent2, BackgroundTransparency = .25, BorderSizePixel = 0}, ring)
+	end
+	local horizontal = line(UDim2.fromOffset(34, 1))
+	local vertical = line(UDim2.fromOffset(1, 34))
+	local dot = line(UDim2.fromOffset(4, 4)); Util.Corner(dot, 999)
+	local caption = UI.AimText(preview, "Prévia", UDim2.fromOffset(0, 65), UDim2.new(1, 0, 0, 14), 8, Theme.Sub)
+	caption.TextXAlignment = Enum.TextXAlignment.Center
+	return {Box = preview, Ring = ring, Outline = outline, Inner = inner,
+		Horizontal = horizontal, Vertical = vertical, Dot = dot, Caption = caption}
+end
+
 function Pages.BuildVisionAim()
 	local page = UI.CreatePage("Aim")
-	local controls = {
-		PresetCards = {},
-		SelectedPreset = nil,
-	}
-
-	UI.Section(
-		page,
-		"AJUSTES PRINCIPAIS",
-		"Mira liga a ajuda. Manter alvo evita trocas. Ajuste o restante abaixo."
-	)
-
+	page:SetAttribute("AAPHideScrollCue", true)
+	local controls = {Page = page, PresetCards = {}, SelectedPreset = nil}
 	controls.RailAim = UI.CreateRailToggle(
 		State.UI.LeftToggleHolder,
 		1,
@@ -9490,363 +9581,117 @@ function Pages.BuildVisionAim()
 		"ESP",
 		"DESATIVADO"
 	)
+	local styleLabels = {RING = "Anel", DOT = "Ponto", CROSS = "Cruz", TACTICAL = "Tático", DUAL = "Dois anéis", PRECISION = "Precisão"}
+	local bodyLabels = {Head = "Cabeça", Torso = "Tronco", LeftArm = "Braço esquerdo", RightArm = "Braço direito", LeftLeg = "Perna esquerda", RightLeg = "Perna direita"}
+	local fixed = {Organizable = false, Scalable = false}
+	local function options(description)
+		return {Organizable = false, Scalable = false, Description = description}
+	end
+	local header = Util.New("Frame", {Name = "AAP_AimHeader", LayoutOrder = -100,
+		Size = UDim2.new(1, 0, 0, 58), BackgroundTransparency = 1, BorderSizePixel = 0}, page)
+	controls.Header = header
+	controls.Title = UI.AimText(header, "Mira", UDim2.fromOffset(2, 3), UDim2.new(1, -132, 0, 23), 16, Theme.Text, true)
+	controls.Status = UI.AimText(header, "Desativada", UDim2.fromOffset(2, 31), UDim2.new(1, -132, 0, 16), 9, Theme.Sub)
+	controls.Power = Util.New("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -38, 0, 10),
+		Size = UDim2.fromOffset(86, 32), BackgroundColor3 = Theme.AccentSoft, BackgroundTransparency = .10,
+		BorderSizePixel = 0, Text = "Ativar", TextColor3 = Theme.Text, TextSize = 11,
+		Font = Enum.Font.GothamMedium, AutoButtonColor = false}, header)
+	Util.Corner(controls.Power, 10); UI.TouchFeedback(controls.Power)
+	controls.PowerStroke = Util.Stroke(controls.Power, Theme.Accent, .42, 1)
+	controls.Help = UI.CreateHelpButton(header, "Ajuste sua mira",
+		"Comece pelo FOV: ele define a área ao redor do centro da tela onde a mira procura jogadores. Isso não é a distância no mapa. Precisão maior corrige mais; suavidade maior deixa o movimento menos brusco. Você pode tocar no número para digitar um valor.",
+		UDim2.new(1, 0, 0, 12))
 
-	local aimPanel = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 304),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-	}, page)
-	Util.Corner(aimPanel, 15)
-	Util.GlassGradient(
-		aimPanel,
-		Color3.fromRGB(24, 23, 31),
-		Color3.fromRGB(11, 13, 19),
-		0.04,
-		0.01,
-		90
-	)
-	Util.Stroke(aimPanel, Theme.BorderInner, 0.58, 1)
-	Util.InnerHighlight(aimPanel, 14, 0.90)
+	local area = Util.New("Frame", {Name = "AAP_AimArea", Size = UDim2.new(1, 0, 0, 100),
+		BackgroundColor3 = Theme.Card, BackgroundTransparency = .10, BorderSizePixel = 0, LayoutOrder = 0}, page)
+	Util.Corner(area, 14); Util.Stroke(area, Theme.BorderSoft, .66, 1)
+	controls.Area = area
+	controls.FOVSlider = UI.CreateSlider(area, "Área de busca", 10, 2000, Config.FOV, " px", function(value)
+		Config.FOV = math.floor(value + 0.5)
+		Aim.MarkAssistantCustomized()
+	end, options("Maior inclui jogadores mais afastados do centro."))
+	controls.FOVSlider.Card.BackgroundTransparency = 1
+	for _, child in ipairs(controls.FOVSlider.Card:GetChildren()) do
+		if child:IsA("UIStroke") then child.Transparency = 1 end
+	end
+	controls.FOVPreview = UI.CreateAimFOVPreview(area)
 
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(10, 7),
-		Size = UDim2.new(0.35, -14, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "CONTROLE",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, aimPanel)
-
-	Util.New("TextLabel", {
-		Position = UDim2.new(0.35, 0, 0, 7),
-		Size = UDim2.new(0.28, 0, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "FOV NA TELA",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, aimPanel)
-
-	Util.New("TextLabel", {
-		Position = UDim2.new(0.63, 8, 0, 7),
-		Size = UDim2.new(0.37, -36, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "REGRAS",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, aimPanel)
-
-	local sliderColumn = Util.New("Frame", {
-		Position = UDim2.new(0, 12, 0, 28),
-		Size = UDim2.new(0.35, -18, 1, -36),
-		BackgroundTransparency = 1,
-	}, aimPanel)
-
-	controls.FOVSlider = UI.CreateCompactSlider(
-		sliderColumn,
-		UDim2.fromOffset(0, 0),
-		"ÁREA (FOV)",
-		10,
-		2000,
-		Config.FOV,
-		" px",
-		function(value)
-			Config.FOV = math.floor(value + 0.5)
-			Aim.MarkAssistantCustomized()
-		end
-	)
-
-	controls.Accuracy = UI.CreateCompactSlider(
-		sliderColumn,
-		UDim2.fromOffset(0, 82),
-		"PRECISÃO",
-		0,
-		100,
-		Config.Accuracy,
-		"%",
-		function(value)
-			Config.Accuracy = math.floor(value + 0.5)
-			Aim.MarkAssistantCustomized()
-		end
-	)
-
-	controls.Smoothing = UI.CreateCompactSlider(
-		sliderColumn,
-		UDim2.fromOffset(0, 164),
-		"SUAVIDADE",
-		0,
-		100,
-		Config.Smoothing,
-		"%",
-		function(value)
-			Config.Smoothing = math.floor(value + 0.5)
-			Aim.MarkAssistantCustomized()
-		end
-	)
-
-	local fovColumn = Util.New("Frame", {
-		Position = UDim2.new(0.35, 0, 0, 24),
-		Size = UDim2.new(0.28, 0, 1, -32),
-		BackgroundTransparency = 1,
-	}, aimPanel)
-
-	local fovCircle = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.52),
-		Size = UDim2.fromScale(0.80, 0.80),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = 0,
-		BorderSizePixel = 0,
-	}, fovColumn)
-	Util.Corner(fovCircle, 999)
-	Util.GlassGradient(
-		fovCircle,
-		Color3.fromRGB(38, 15, 25),
-		Color3.fromRGB(12, 12, 18),
-		0.04,
-		0.01,
-		90
-	)
-	Util.Stroke(fovCircle, Theme.Accent2, 0.16, 1)
-	Util.New("UIAspectRatioConstraint", {
-		AspectRatio = 1,
-		DominantAxis = Enum.DominantAxis.Width,
-		AspectType = Enum.AspectType.FitWithinMaxSize,
-	}, fovCircle)
-
-	local fovInnerRing = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.72, 0.72),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-	}, fovCircle)
-	Util.Corner(fovInnerRing, 999)
-	Util.Stroke(fovInnerRing, Theme.Accent, 0.70, 1)
-	Util.New("UISizeConstraint", {
-		MinSize = Vector2.new(46, 46),
-		MaxSize = Vector2.new(120, 120),
-	}, fovCircle)
-
-	local previewHorizontal = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, -5, 0, 1),
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.78,
-		BorderSizePixel = 0,
-	}, fovCircle)
-	local previewVertical = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(0, 1, 1, -5),
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.78,
-		BorderSizePixel = 0,
-	}, fovCircle)
-	local fovDot = Util.New("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(4, 4),
-		BackgroundColor3 = Theme.Text,
-		BorderSizePixel = 0,
-	}, fovCircle)
-	Util.Corner(fovDot, 999)
-
-	local optionColumn = Util.New("Frame", {
-		Position = UDim2.new(0.63, 8, 0, 28),
-		Size = UDim2.new(0.37, -20, 1, -36),
-		BackgroundTransparency = 1,
-	}, aimPanel)
-
-	controls.Mode = UI.CreateMiniCycle(
-		optionColumn,
-		UDim2.fromOffset(0, 0),
-		"QUEM PODE SER ALVO"
-	)
-	controls.Wall = UI.CreateMiniCycle(
-		optionColumn,
-		UDim2.fromOffset(0, 48),
-		"VERIFICAR PAREDES"
-	)
-	controls.Priority = UI.CreateMiniCycle(
-		optionColumn,
-		UDim2.fromOffset(0, 96),
-		"PARTE DO CORPO"
-	)
-	controls.FOVStyle = UI.CreateMiniCycle(
-		optionColumn,
-		UDim2.fromOffset(0, 144),
-		"VISUAL DO FOV"
-	)
-	controls.FOVVisibility = UI.CreateMiniToggle(
-		optionColumn,
-		UDim2.fromOffset(0, 192),
-		"MOSTRAR FOV"
-	)
-	controls.FOVPreview = {
-		Inner = fovInnerRing,
-		Horizontal = previewHorizontal,
-		Vertical = previewVertical,
-		Dot = fovDot,
-	}
-
-	local aimHelp = Util.New("TextLabel", {
-		Position = UDim2.fromOffset(10, 272),
-		Size = UDim2.new(1, -20, 0, 24),
-		BackgroundColor3 = Theme.Chip,
-		BackgroundTransparency = 0.18,
-		BorderSizePixel = 0,
-		Text = "FOV maior procura mais longe. Precisão alta corrige mais. Suavidade alta deixa o movimento mais leve.",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-	}, aimPanel)
-	Util.Corner(aimHelp, 999)
-	Util.Stroke(aimHelp, Theme.BorderSoft, 0.72, 1)
-	Util.FitText(aimHelp, 6, 8)
-
-	local presetsPanel = Util.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 210),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-	}, page)
-	Util.Corner(presetsPanel, 15)
-	Util.GlassGradient(
-		presetsPanel,
-		Color3.fromRGB(22, 23, 31),
-		Color3.fromRGB(10, 12, 18),
-		0.04,
-		0.01,
-		90
-	)
-	Util.Stroke(presetsPanel, Theme.BorderInner, 0.58, 1)
-	Util.InnerHighlight(presetsPanel, 14, 0.90)
-
-	Util.New("TextLabel", {
-		Position = UDim2.fromOffset(10, 7),
-		Size = UDim2.new(1, -20, 0, 16),
-		BackgroundTransparency = 1,
-		Text = "AJUSTES RÁPIDOS",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, presetsPanel)
-
-	local presetScroller = Util.New("ScrollingFrame", {
-		Position = UDim2.fromOffset(8, 28),
-		Size = UDim2.new(1, -16, 0, 132),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		CanvasSize = UDim2.new(),
-		ScrollBarThickness = 2,
-		ScrollBarImageColor3 = Theme.Accent,
-		ScrollingDirection = Enum.ScrollingDirection.X,
-		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
-		HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
-	}, presetsPanel)
-	local presetLayout = Util.New("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 7),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, presetScroller)
-	Util.New("UIPadding", {
-		PaddingLeft = UDim.new(0, 3),
-		PaddingRight = UDim.new(0, 3),
-		PaddingTop = UDim.new(0, 3),
-		PaddingBottom = UDim.new(0, 3),
-	}, presetScroller)
-	presetLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		if presetScroller.Parent then
-			presetScroller.CanvasSize =
-				UDim2.fromOffset(presetLayout.AbsoluteContentSize.X + 10, 0)
-		end
-	end)
-
+	local response = Util.New("Frame", {Name = "AAP_AimResponse", Size = UDim2.new(1, 0, 0, 0),
+		BackgroundTransparency = 1, LayoutOrder = 1}, page)
+	controls.Response = response
+	controls.Accuracy = UI.CreateSlider(response, "Precisão", 0, 100, Config.Accuracy, "%", function(value)
+		Config.Accuracy = math.floor(value + 0.5)
+		Aim.MarkAssistantCustomized()
+	end, options("Maior corrige mais a direção da mira."))
+	controls.Smoothing = UI.CreateSlider(response, "Suavidade", 0, 100, Config.Smoothing, "%", function(value)
+		Config.Smoothing = math.floor(value + 0.5)
+		Aim.MarkAssistantCustomized()
+	end, options("Maior deixa o movimento mais suave."))
+	local rules = UI.CreateAimSection(page, "Escolha do alvo", nil, 2)
+	controls.Rules = rules
+	controls.Mode = UI.CreateCycle(rules, "Quem pode ser alvo", "Todos ou apenas o jogador marcado.", fixed)
+	controls.Wall = UI.CreateCycle(rules, "Verificar paredes", "Evita focar jogadores atrás de paredes.", fixed)
+	controls.Priority = UI.CreateCycle(rules, "Parte do corpo", "Região que a mira tenta usar primeiro.", fixed)
+	local appearance = UI.CreateAimSection(page, "Círculo na tela", nil, 3)
+	controls.Appearance = appearance
+	controls.FOVVisibility = UI.CreateToggle(appearance, "Mostrar FOV", "Ocultar o círculo mantém a área de busca.", fixed)
+	controls.FOVStyle = UI.CreateCycle(appearance, "Estilo do FOV", "Escolha o desenho do círculo.", fixed)
+	local presets, presetShell = UI.CreateAimSection(page, "Ajustes rápidos", "Toque para aplicar uma combinação pronta.", 4)
+	controls.PresetGrid = presets
 	local presetData = {
 		{
 			Key = "SOFT",
-			Title = "SUAVE",
-			Description = "Movimento suave e discreto.",
+			Title = "Suave",
+			Description = "Ajuda leve com a arma atual.",
 			Weapon = false,
 			Mode = "SOFT",
 			Color = Color3.fromRGB(77, 218, 143),
 		},
 		{
 			Key = "STRONG",
-			Title = "FORTE",
-			Description = "Resposta rápida com ajuda alta.",
+			Title = "Forte",
+			Description = "Mais correção com a arma atual.",
 			Weapon = false,
 			Mode = "STRONG",
 			Color = Color3.fromRGB(247, 155, 67),
 		},
 		{
 			Key = "MAXIMUM",
-			Title = "MÁXIMO",
-			Description = "Resposta imediata e força máxima.",
+			Title = "Máximo",
+			Description = "Maior correção com a arma atual.",
 			Weapon = false,
 			Mode = "MAXIMUM",
 			ColorKey = "Accent",
 		},
 		{
 			Key = "SNIPER",
-			Title = "LONGA DISTÂNCIA",
-			Description = "Pronto para longa distância.",
+			Title = "Longa distância",
+			Description = "Sniper com intensidade equilibrada.",
 			Weapon = "SNIPER",
 			Mode = "BALANCED",
 			Color = Color3.fromRGB(72, 151, 232),
 		},
 		{
 			Key = "SMG",
-			Title = "CURTA DISTÂNCIA",
-			Description = "Pronto para curta distância.",
+			Title = "Curta distância",
+			Description = "SMG com intensidade forte.",
 			Weapon = "SMG",
 			Mode = "STRONG",
 			Color = Color3.fromRGB(167, 83, 233),
 		},
 	}
-
-	local function presetColor(data)
-		return data.ColorKey and Theme[data.ColorKey]
-			or data.Color
-			or Theme.Accent
-	end
-
 	local function setPresetVisual(control, active)
-		local color = presetColor(control.Data)
-		control.Card.BackgroundTransparency = active and 0 or 0.03
-		control.Stroke.Color = active and color or Theme.BorderInner
-		control.Stroke.Transparency = active and 0.04 or 0.60
-		if control.Marker then
-			control.Marker.BackgroundColor3 = color
-		end
-		if control.Gradient then
-			control.Gradient.Color = ColorSequence.new(
-				active
-					and color:Lerp(Theme.CardActive, 0.54)
-					or color:Lerp(Theme.Card, 0.76),
-				active and Theme.CardActive or Theme.Card
-			)
-		end
-		control.Check.Visible = active
+		UI.SetArmChoiceSelected(control, active)
 	end
-
 	State.UI.RefreshQuickPresetVisuals = function()
 		controls.SelectedPreset = State.ActiveQuickPresetKey
-
-		for key, control in pairs(controls.PresetCards) do
-			setPresetVisual(control, key == controls.SelectedPreset)
+		for key, control in pairs(controls.PresetCards) do setPresetVisual(control, key == controls.SelectedPreset) end
+		if controls.PresetSummary then
+			local selected = controls.SelectedPreset and controls.PresetCards[controls.SelectedPreset]
+			controls.PresetSummary.Text = selected and selected.Data.Title
+				or Config.AimAssistant.Customized and "Ajuste manual" or "Combinação atual"
 		end
 	end
-
 	local function applyPreset(data)
 		local weapon = data.Weapon or Config.AimAssistant.Weapon or "RIFLE"
 		if Aim.ApplyAssistantPreset(weapon, data.Mode) then
@@ -9865,107 +9710,66 @@ function Pages.BuildVisionAim()
 			UI.Toast("Ajuste aplicado: " .. data.Title)
 		end
 	end
-
+	local levels = {SOFT = 1, STRONG = 3, MAXIMUM = 4}
 	for index, data in ipairs(presetData) do
-		local color = presetColor(data)
-		local card = Util.New("TextButton", {
-			Size = UDim2.fromOffset(124, 120),
-			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-			BackgroundTransparency = 0.03,
-			BorderSizePixel = 0,
-			Text = "",
-			AutoButtonColor = false,
-			LayoutOrder = index,
-		}, presetScroller)
-		Util.Corner(card, 13)
-		local cardGradient = Util.GlassGradient(
-			card,
-			color:Lerp(Theme.Card, 0.76),
-			Theme.Card,
-			0,
-			0,
-			90
-		)
-		local stroke = Util.Stroke(card, Theme.BorderInner, 0.60, 1)
-		Util.InnerHighlight(card, 10, 0.86)
-
-		local presetMarker = Util.New("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.5, 0, 0, 16),
-			Size = UDim2.fromOffset(9, 9),
-			BackgroundColor3 = color,
-			BorderSizePixel = 0,
-		}, card)
-		Util.Corner(presetMarker, 999)
-		Util.Stroke(presetMarker, color, 0.42, 3)
-		Util.New("TextLabel", {
-			Position = UDim2.fromOffset(6, 29),
-			Size = UDim2.new(1, -12, 0, 14),
-			BackgroundTransparency = 1,
-			Text = data.Title,
-			TextColor3 = Theme.Text,
-			Font = Enum.Font.GothamBold,
-			TextSize = 8,
-		}, card)
-		Util.New("TextLabel", {
-			Position = UDim2.fromOffset(8, 48),
-			Size = UDim2.new(1, -16, 0, 57),
-			BackgroundTransparency = 1,
-			Text = data.Description,
-			TextColor3 = Theme.Sub,
-			Font = Enum.Font.Gotham,
-			TextSize = 7,
-			TextWrapped = true,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			TextYAlignment = Enum.TextYAlignment.Top,
-		}, card)
-		local check = Util.New("TextLabel", {
-			AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.new(1, -3, 1, -3),
-			Size = UDim2.fromOffset(17, 17),
-			BackgroundColor3 = Theme.Accent,
-			BorderSizePixel = 0,
-			Text = "✓",
-			TextColor3 = Theme.Text,
-			Font = Enum.Font.GothamBold,
-			TextSize = 7,
-			Visible = false,
-		}, card)
-		Util.Corner(check, 999)
-		Util.Stroke(check, Theme.Accent2, 0.20, 1)
-		UI.TouchFeedback(card)
-
-		controls.PresetCards[data.Key] = {
-			Card = card,
-			Stroke = stroke,
-			Check = check,
-			Gradient = cardGradient,
-			Marker = presetMarker,
-			Data = data,
-		}
-		card.MouseButton1Click:Connect(function()
-			applyPreset(data)
+		local control = UI.CreateArmChoice(presets, data.Title, data.Description, data.Weapon or nil, levels[data.Key])
+		control.Data = data
+		controls.PresetCards[data.Key] = control
+		control.Card.LayoutOrder = index
+		control.Card.MouseButton1Click:Connect(function()
+			if Runtime.Alive and not State.UI.LayoutEditMode then applyPreset(data) end
 		end)
 	end
+	local footer = Util.New("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = 1}, presetShell)
+	controls.PresetSummary = UI.AimText(footer, "Combinação atual", UDim2.fromOffset(2, 8), UDim2.new(1, -116, 0, 20), 9, Theme.Sub)
+	controls.Apply = Util.New("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -2, 0, 2),
+		Size = UDim2.fromOffset(104, 34), BackgroundColor3 = Theme.Surface3, BackgroundTransparency = .12,
+		BorderSizePixel = 0, Text = "Reaplicar", TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium,
+		TextSize = 10, AutoButtonColor = false}, footer)
+	Util.Corner(controls.Apply, 10); Util.Stroke(controls.Apply, Theme.BorderSoft, .62, 1); UI.TouchFeedback(controls.Apply)
 
-	controls.Apply = Util.New("TextButton", {
-		Position = UDim2.fromOffset(8, 174),
-		Size = UDim2.new(1, -16, 0, 28),
-		BackgroundColor3 = Theme.Card,
-		BackgroundTransparency = 0.03,
-		BorderSizePixel = 0,
-		Text = "REAPLICAR AJUSTE",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 7,
-		AutoButtonColor = false,
-	}, presetsPanel)
-	Util.Corner(controls.Apply, 999)
-	Util.Sheen(controls.Apply, 0.07)
-	Util.Stroke(controls.Apply, Theme.BorderInner, 0.58, 1)
-	UI.TouchFeedback(controls.Apply)
-
+	function controls.Layout()
+		if not Runtime.Alive or not page.Parent then return end
+		local columns = page.AbsoluteSize.X - 14 >= 400 and 2 or 1
+		local function grid(holder, list, heights, spanLast)
+			local y = 0
+			for index, card in ipairs(list) do
+				local column = (index - 1) % columns
+				local span = spanLast and index == #list and column == 0
+				local wide = columns == 1 or span
+				card.Position = UDim2.new(wide and 0 or column / columns, column == 0 and 0 or 4, 0, y)
+				card.Size = UDim2.new(wide and 1 or 1 / columns, wide and 0 or -4, 0, heights[index])
+				if column == columns - 1 or index == #list or span then
+					y += math.max(heights[index], column == 1 and heights[index - 1] or 0) + 8
+				end
+			end
+			holder.Size = UDim2.new(1, 0, 0, math.max(y - 8, 0))
+		end
+		local fovHeight = UI.StyleAimControl(controls.FOVSlider)
+		local previewVisible = page.AbsoluteSize.X - 14 >= 400
+		controls.FOVPreview.Box.Visible = previewVisible
+		controls.FOVSlider.Card.Size = UDim2.new(1, previewVisible and -100 or 0, 0, fovHeight)
+		controls.FOVSlider.Card.BackgroundTransparency = 1
+		area.Size = UDim2.new(1, 0, 0, fovHeight)
+		grid(response, {controls.Accuracy.Card, controls.Smoothing.Card},
+			{UI.StyleAimControl(controls.Accuracy), UI.StyleAimControl(controls.Smoothing)})
+		grid(rules, {controls.Mode.Card, controls.Wall.Card, controls.Priority.Card},
+			{UI.StyleAimControl(controls.Mode), UI.StyleAimControl(controls.Wall), UI.StyleAimControl(controls.Priority)}, true)
+		grid(appearance, {controls.FOVVisibility.Card, controls.FOVStyle.Card},
+			{UI.StyleAimControl(controls.FOVVisibility), UI.StyleAimControl(controls.FOVStyle)})
+		local cards, heights = {}, {}
+		for index, data in ipairs(presetData) do
+			cards[index] = controls.PresetCards[data.Key].Card
+			heights[index] = math.max(80, math.floor(88 * Config.ControlScale + .5))
+		end
+		grid(presets, cards, heights, true)
+	end
 	function controls.Refresh()
+		if not Runtime.Alive or not page.Parent then return end
+		controls.Power.Text = Config.AimEnabled and "Desativar" or "Ativar"
+		controls.Power.BackgroundColor3 = Config.AimEnabled and Theme.CardActive or Theme.AccentSoft
+		controls.Status.Text = Config.AimEnabled and "Ativada" or "Desativada"
+		controls.Status.TextColor3 = Config.AimEnabled and Theme.Accent2 or Theme.Sub
 		UI.SetRailToggle(controls.RailAim, Config.AimEnabled)
 		UI.SetRailToggle(controls.RailLock, Config.StickyTarget)
 		UI.SetRailToggle(controls.RailESP, Config.ESPEnabled)
@@ -9974,16 +9778,19 @@ function Pages.BuildVisionAim()
 		controls.Accuracy:SetValue(Config.Accuracy, false)
 		controls.Smoothing:SetValue(Config.Smoothing, false)
 		controls.Mode.Value.Text =
-			Config.AimMode == "AUTO" and "TODOS" or "SÓ O ESCOLHIDO"
-		controls.Wall.Value.Text = Config.WallCheck and "ATIVADO" or "DESATIVADO"
+			Config.AimMode == "AUTO" and "Todos" or "Só o escolhido"
+		controls.Wall.Value.Text = Config.WallCheck and "Ativado" or "Desativado"
 		controls.FOVStyle.Value.Text =
-			FOV_STYLE_LABELS[Config.FOVStyle] or "TÁTICO"
-		UI.SetMiniToggle(
-			controls.FOVVisibility,
-			Config.ShowFOVCircle,
-			"VISÍVEL",
-			"OCULTO"
-		)
+			styleLabels[Config.FOVStyle] or "Tático"
+		UI.SetToggle(controls.FOVVisibility, Config.ShowFOVCircle)
+		controls.FOVVisibility.Description.Text = Config.ShowFOVCircle
+			and "Visível. A área de busca aparece na tela."
+			or "Oculto. A área de busca continua ativa."
+		controls.FOVStyle.Description.Text = Config.ShowFOVCircle
+			and "Escolha o desenho do círculo."
+			or "Oculto; sua escolha de estilo fica salva."
+		controls.FOVPreview.Caption.Text = Config.ShowFOVCircle and "Prévia" or "Oculto"
+		controls.FOVPreview.Outline.Transparency = Config.ShowFOVCircle and .12 or .65
 		local fovStyle = Config.FOVStyle
 		controls.FOVPreview.Inner.Visible =
 			fovStyle == "TACTICAL" or fovStyle == "DUAL"
@@ -10006,8 +9813,8 @@ function Pages.BuildVisionAim()
 		controls.Priority.Value.Text =
 			part
 			and part.Label
-			or region and region.Label
-			or "PADRÃO"
+			or bodyLabels[Config.PrimaryBodyRegion] or region and region.Label
+			or "Padrão"
 
 		local assistant = Config.AimAssistant
 		local mode = assistant.Modes[assistant.Mode]
@@ -10030,10 +9837,15 @@ function Pages.BuildVisionAim()
 				or WeaponProfileLabels[Config.WeaponProfile]
 				or "PADRÃO"
 		end
+		controls.Layout()
 	end
-
 	State.UI.RefreshAimControls = controls.Refresh
-
+	State.UI.RefreshAimLayout = controls.Layout
+	State.UI.AimControls = controls
+	controls.Power.Activated:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
+		UI.SetAimEnabled(not State.AimActivationIntent, "Assistência desativada pelo menu", true)
+	end)
 	controls.RailAim.Card.MouseButton1Click:Connect(function()
 		UI.SetAimEnabled(
 			not State.AimActivationIntent,
@@ -10062,8 +9874,8 @@ function Pages.BuildVisionAim()
 		controls.Mode,
 		"Quem pode ser alvo",
 		{
-			{Value = "AUTO", Label = "TODOS", Description = "Procura qualquer jogador que não esteja protegido."},
-			{Value = "SELECTED", Label = "SÓ O ESCOLHIDO", Description = "Usa apenas a pessoa marcada com FOCAR."},
+			{Value = "AUTO", Label = "Todos", Description = "Procura qualquer jogador que não esteja protegido."},
+			{Value = "SELECTED", Label = "Só o escolhido", Description = "Usa apenas a pessoa marcada com Focar."},
 		},
 		function()
 			return Config.AimMode
@@ -10082,8 +9894,8 @@ function Pages.BuildVisionAim()
 		controls.Wall,
 		"Verificar paredes",
 		{
-			{Value = true, Label = "ATIVADO", Description = "Evita focar jogadores atrás de paredes."},
-			{Value = false, Label = "DESATIVADO", Description = "Não verifica se existe algo na frente do jogador."},
+			{Value = true, Label = "Ativado", Description = "Evita focar jogadores atrás de paredes."},
+			{Value = false, Label = "Desativado", Description = "Não verifica se existe algo na frente do jogador."},
 		},
 		function()
 			return Config.WallCheck
@@ -10101,7 +9913,7 @@ function Pages.BuildVisionAim()
 		local region = BodyRegions[regionName]
 		priorityChoices[#priorityChoices + 1] = {
 			Value = regionName,
-			Label = region and region.Label or regionName,
+			Label = bodyLabels[regionName] or region and region.Label or regionName,
 		}
 	end
 	UI.BindChoiceMenu(
@@ -10131,7 +9943,7 @@ function Pages.BuildVisionAim()
 	for _, styleName in ipairs(FOV_STYLE_ORDER) do
 		fovStyleChoices[#fovStyleChoices + 1] = {
 			Value = styleName,
-			Label = FOV_STYLE_LABELS[styleName] or styleName,
+			Label = styleLabels[styleName] or styleName,
 			Description = fovStyleDescriptions[styleName],
 		}
 	end
@@ -10165,6 +9977,7 @@ function Pages.BuildVisionAim()
 	end)
 
 	controls.Apply.MouseButton1Click:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		local assistant = Config.AimAssistant
 		local quickPresetKey = State.ActiveQuickPresetKey
 		if Aim.ApplyAssistantPreset(
@@ -10185,15 +9998,18 @@ function Pages.BuildVisionAim()
 			UI.Toast("Ajuste atual aplicado")
 		end
 	end)
-
-	local advancedContent = UI.CreateExpandableGroup(
-		page,
-		"AJUSTES AVANÇADOS",
-		"Abra para ajustar a correção e o movimento da mira.",
-		false
-	)
+	local advancedContent, advancedGroup = UI.CreateExpandableGroup(page, "Ajustes avançados",
+		"Movimento e arma.", false)
 	State.UI.AimAdvancedContainer = advancedContent
-
+	controls.AdvancedGroup = advancedGroup
+	advancedGroup.Shell.LayoutOrder = 5
+	local lastWidth = -1
+	page:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if page.AbsoluteSize.X ~= lastWidth then lastWidth = page.AbsoluteSize.X; controls.Layout() end
+	end)
+	page:GetPropertyChangedSignal("Visible"):Connect(function()
+		if page.Visible then controls.Refresh() end
+	end)
 	controls.Refresh()
 	return page
 end
@@ -12417,12 +12233,13 @@ function Pages.BuildEngine()
 		Util.New("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder}, aimCategory)
 	end
 
-	UI.Section(
+	local aimAdvancedHeading = UI.Section(
 		aimCategory,
 		"MOVIMENTO E CORREÇÃO",
 		"Use estes controles quando quiser ajustar a mira além dos perfis prontos."
 	)
 
+	aimAdvancedHeading.Visible = false
 	local grid = UI.Stack(aimCategory)
 
 	controls.Horizontal =
@@ -12478,6 +12295,11 @@ function Pages.BuildEngine()
 				Help = "Este atalho altera apenas o comportamento usado para acompanhar disparos. A aba Armas também ajusta FOV, precisão, suavidade e parte do corpo.",
 			}
 		)
+
+	for _, control in ipairs({controls.Horizontal, controls.Vertical, controls.Distance, controls.Curve, controls.Profile}) do
+		UI.StyleAimControl(control)
+	end
+	controls.Distance.Title.Text = "Compensar distância"
 
 	local mobileSupport = UI.SettingsGroup(mobileCategory, "Atalhos na tela", "Acesso à mira mesmo com o menu fechado.", "Engine:Stack1")
 
@@ -16628,4 +16450,4 @@ task.defer(function()
 	end
 end)
 
-print("[VisionX V34.6.1 - Abertura e minimização fluidas] carregado")
+print("[VisionX V34.7.0 - Nova aba Mira] carregado")
