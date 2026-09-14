@@ -1,4 +1,4 @@
--- V35.1.2 — formatos do menu distintos no celular e ao redimensionar a janela.
+-- V35.2.0 — botão compacto VisionX, arte embutida e abertura por toque sem confundir arrasto.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -8018,6 +8018,389 @@ function UI.BuildAimStatusPanel(panel)
 	}, panel), 5, 7)
 end
 
+-- Compact launcher artwork is embedded, theme-tinted and independent of HTTP.
+-- The native fallback is visible immediately, including on executors without image APIs.
+function UI.GetLauncherArtwork()
+	if UI.LauncherArtworkAttempted then return UI.LauncherArtworkAsset end
+	UI.LauncherArtworkAttempted = true
+	local register = type(getcustomasset) == "function" and getcustomasset
+		or type(getsynasset) == "function" and getsynasset
+	if not register or type(writefile) ~= "function" then return nil end
+	local ok, asset = pcall(function()
+		local encoded = [[
+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
+]]
+		local alphabet, codes = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", {}
+		for index = 1, #alphabet do codes[string.byte(alphabet, index)] = index - 1 end
+		encoded = encoded:gsub("%s", "")
+		local bytes = {}
+		for index = 1, #encoded, 4 do
+			local a, b, c, d = string.byte(encoded, index, index + 3)
+			local value = codes[a] * 262144 + codes[b] * 4096 + (codes[c] or 0) * 64 + (codes[d] or 0)
+			local first, second = math.floor(value / 65536), math.floor(value / 256) % 256
+			bytes[#bytes + 1] = c == 61 and string.char(first)
+				or d == 61 and string.char(first, second) or string.char(first, second, value % 256)
+		end
+		local png, path = table.concat(bytes), "VisionX_Launcher_35_2.png"
+		local cachedOK, cached = false, nil
+		if type(readfile) == "function" then cachedOK, cached = pcall(readfile, path) end
+		if not cachedOK or cached ~= png then writefile(path, png) end
+		return register(path)
+	end)
+	if ok and type(asset) == "string" and asset ~= "" then UI.LauncherArtworkAsset = asset end
+	return UI.LauncherArtworkAsset
+end
+
+function UI.CreateCompactLauncher(root)
+	local holder = Util.New("Frame", {
+		Name = "VisionXLauncher", AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 16, 0.36, 0), Size = UDim2.fromOffset(64, 74),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false,
+		Active = true, ClipsDescendants = false, ZIndex = 30,
+	}, root)
+	State.UI.CompactBar = holder
+	local visual = Util.New("Frame", {
+		Name = "Artwork", AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 31,
+	}, holder)
+	local scale = Util.New("UIScale", {Name = "PressScale", Scale = 1}, visual)
+	State.UI.LauncherPressScale = scale
+	local shadow = Util.New("Frame", {
+		Name = "Shadow", Position = UDim2.fromOffset(0, 3), Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.72,
+		BorderSizePixel = 0, ZIndex = 31,
+	}, visual)
+	Util.Corner(shadow, 18)
+	local surface = Util.New("Frame", {
+		Name = "Surface", Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.02,
+		BorderSizePixel = 0, ZIndex = 32,
+	}, visual)
+	Util.Corner(surface, 18)
+	Util.Gradient(surface, Color3.fromRGB(34, 40, 50), Color3.fromRGB(11, 14, 21), 90)
+	local border = Util.Stroke(surface, Color3.fromRGB(72, 87, 109), 0.22, 1)
+	State.UI.LauncherBorder = border
+	local fallback = Util.New("Frame", {
+		Name = "NativeArtwork", Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 33,
+	}, visual)
+	local nativeGlow = Util.New("Frame", {
+		Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Accent,
+		BorderSizePixel = 0, ZIndex = 33,
+	}, fallback)
+	Util.Corner(nativeGlow, 18)
+	Util.New("UIGradient", {Rotation = 55, Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.58, 1),
+		NumberSequenceKeypoint.new(1, 0.18),
+	})}, nativeGlow)
+	local nativeLogo = Util.New("TextLabel", {
+		Position = UDim2.fromOffset(12, 8), Size = UDim2.fromOffset(40, 39),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "V",
+		TextColor3 = Color3.fromRGB(245, 247, 250), Font = Enum.Font.GothamBlack,
+		TextSize = 36, TextScaled = false, ZIndex = 34,
+	}, fallback)
+	nativeLogo.TextSize = 36 -- Fixed artwork, outside the menu's 16px text limit.
+	local clip = Util.New("Frame", {
+		Position = UDim2.fromOffset(15, 13), Size = UDim2.fromOffset(15, 11),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, ZIndex = 35,
+	}, fallback)
+	local nativeFacet = Util.New("TextLabel", {
+		Position = UDim2.fromOffset(-3, -5), Size = UDim2.fromOffset(40, 39),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "V",
+		TextColor3 = Theme.Accent, Font = Enum.Font.GothamBlack,
+		TextSize = 36, TextScaled = false, ZIndex = 35,
+	}, clip)
+	nativeFacet.TextSize = 36
+	local images, connections = {}, {}
+	local asset = UI.GetLauncherArtwork()
+	if asset then
+		for index, color in ipairs({Theme.Accent, Color3.new(1, 1, 1),
+			Color3.fromRGB(245, 247, 250), Theme.Accent}) do
+			local image = Util.New("ImageLabel", {
+				Name = "LauncherLayer" .. tostring(index), Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1, BorderSizePixel = 0, Image = asset,
+				ImageRectOffset = Vector2.new((index - 1) * 256, 0),
+				ImageRectSize = Vector2.new(256, 296), ImageColor3 = color,
+				ScaleType = Enum.ScaleType.Stretch, Visible = false, ZIndex = 32 + index,
+			}, visual)
+			if index == 1 or index == 4 then image:SetAttribute("AAPTheme_ImageColor3", "Accent") end
+			images[#images + 1] = image
+		end
+		local function disconnectImages()
+			for _, connection in ipairs(connections) do Runtime.Untrack(connection) end
+			table.clear(connections)
+		end
+		local function revealArtwork()
+			if not Runtime.Alive or not holder.Parent then return end
+			for _, image in ipairs(images) do if not image.IsLoaded then return end end
+			fallback.Visible = false
+			for _, image in ipairs(images) do image.Visible = true end
+			disconnectImages()
+		end
+		for _, image in ipairs(images) do
+			connections[#connections + 1] = Runtime.Track(image:GetPropertyChangedSignal("IsLoaded"):Connect(revealArtwork))
+		end
+		holder.Destroying:Connect(disconnectImages)
+		revealArtwork()
+	end
+	local label = Util.New("TextLabel", {
+		Name = "MenuLabel", Position = UDim2.fromOffset(4, 46), Size = UDim2.new(1, -8, 0, 16),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Text = "MENU",
+		TextColor3 = Color3.fromRGB(213, 219, 229), Font = Enum.Font.GothamMedium,
+		TextSize = 10, TextScaled = false, ZIndex = 37,
+	}, visual)
+	label.TextSize = 10
+	local grip = Util.New("Frame", {
+		Name = "Grip", AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 1, -8), Size = UDim2.fromOffset(20, 2),
+		BackgroundColor3 = Color3.fromRGB(128, 141, 162), BackgroundTransparency = 0.12,
+		BorderSizePixel = 0, ZIndex = 37,
+	}, visual)
+	Util.Corner(grip, 999)
+	State.UI.LauncherGrip = grip
+	State.UI.CompactOpen = Util.New("TextButton", {
+		Name = "OpenMenu", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+		BorderSizePixel = 0, Text = "", AutoButtonColor = false, Active = true,
+		Selectable = true, ZIndex = 38,
+	}, holder)
+	return holder
+end
+
+-- One pointer owns a gesture. A short stationary tap opens; a held drag only moves.
+function UI.BindCompactLauncher(onOpen)
+	local holder, button = State.UI.CompactBar, State.UI.CompactOpen
+	local gesture = nil
+	local finish
+	local function paint(pressed, held, instant)
+		local scale, grip, border = State.UI.LauncherPressScale, State.UI.LauncherGrip, State.UI.LauncherBorder
+		if scale and scale.Parent then
+			local value = pressed and not held and 0.96 or 1
+			if instant then Util.StopTween(scale); scale.Scale = value
+			else Util.Tween(scale, {Scale = value}, pressed and 0.08 or 0.14) end
+		end
+		if grip and grip.Parent then grip.BackgroundColor3 = held and Theme.Accent or Color3.fromRGB(128, 141, 162) end
+		if border and border.Parent then border.Transparency = pressed and 0.05 or 0.22 end
+	end
+	local function reset()
+		if gesture then Runtime.Disconnect(gesture.StateConnection) end
+		gesture = nil
+		paint(false, false, true)
+	end
+	State.UI.ResetLauncherInput = reset
+	local function matches(input, movement)
+		if not gesture then return false end
+		if gesture.Input.UserInputType == Enum.UserInputType.Touch then return input == gesture.Input end
+		return input.UserInputType == (movement and Enum.UserInputType.MouseMovement or Enum.UserInputType.MouseButton1)
+	end
+	local function move(input)
+		if not gesture then return end
+		local point = Vector2.new(input.Position.X, input.Position.Y)
+		local delta = point - gesture.Start
+		gesture.Last = point
+		if delta.Magnitude >= 7 then gesture.Moved = true end
+		if not gesture.Held or not gesture.Moved then return end
+		local dragDelta = point - gesture.DragStart
+		if dragDelta.Magnitude < 2 and not gesture.Dragged then return end
+		gesture.Dragged = true
+		local viewport = S.Camera and S.Camera.ViewportSize or Vector2.new(800, 450)
+		local size, anchor, origin = holder.AbsoluteSize, holder.AnchorPoint, gesture.Origin
+		local x = viewport.X * origin.X.Scale + origin.X.Offset + dragDelta.X
+		local y = viewport.Y * origin.Y.Scale + origin.Y.Offset + dragDelta.Y
+		holder.Position = UDim2.fromOffset(
+			Util.ClampAnchoredAxis(x, size.X, anchor.X, viewport.X, 8),
+			Util.ClampAnchoredAxis(y, size.Y, anchor.Y, viewport.Y, 8)
+		)
+	end
+	button.InputBegan:Connect(function(input)
+		if not Runtime.Alive or not holder.Visible or gesture then return end
+		if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		UI.FinishWindowMotion(holder)
+		local point = Vector2.new(input.Position.X, input.Position.Y)
+		local current = {Input = input, Start = point, Last = point, Moved = false, Held = false}
+		gesture = current
+		current.StateConnection = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
+			if input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel then
+				task.defer(function() if gesture == current then finish(input) end end)
+			end
+		end)
+		paint(true, false)
+		task.delay(0.25, function()
+			if gesture ~= current or not Runtime.Alive or not holder.Parent or not holder.Visible then return end
+			current.Held, current.DragStart, current.Origin = true, current.Last, holder.Position
+			paint(true, true)
+		end)
+	end)
+	Runtime.Track(S.UIS.InputChanged:Connect(function(input)
+		if matches(input, true) then move(input) end
+	end))
+	finish = function(input)
+		if not matches(input, false) then return end
+		if input.UserInputState == Enum.UserInputState.Cancel then reset(); return end
+		move(input) -- A quick flick may deliver its only displacement on release.
+		local open = not gesture.Held and not gesture.Moved and Runtime.Alive and holder.Visible
+			and UI.PointInside(button, Vector2.new(input.Position.X, input.Position.Y))
+		Runtime.Disconnect(gesture.StateConnection)
+		gesture = nil
+		paint(false, false)
+		if open then onOpen() end
+	end
+	Runtime.Track(S.UIS.InputEnded:Connect(finish))
+	button.Activated:Connect(function(input)
+		-- Pointer releases are handled above, so Activated cannot open after a drag.
+		if input and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then return end
+		if Runtime.Alive and holder.Visible and not gesture then onOpen() end
+	end)
+	Runtime.Track(S.UIS.WindowFocusReleased:Connect(reset))
+	holder:GetPropertyChangedSignal("Visible"):Connect(function() if not holder.Visible then reset() end end)
+	holder.Destroying:Connect(reset)
+end
+
+
 local function GetVisionMenuSize(fill, requestedScale)
 	local viewport =
 		S.Camera and S.Camera.ViewportSize
@@ -8781,113 +9164,7 @@ local function BuildVisionRootUI()
 	end
 	UI.TouchFeedback(State.UI.ResizeHandle)
 
-	State.UI.CompactBar = Util.New("Frame", {
-		Name = "CompactBar",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.09),
-		Size = UDim2.fromScale(0.30, 0.08),
-		BackgroundColor3 = Theme.Border,
-		BackgroundTransparency = 0.08,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		Visible = false,
-		Active = true,
-		ZIndex = 30,
-	}, root)
-	Util.Corner(State.UI.CompactBar, 999)
-	Util.Stroke(State.UI.CompactBar, Theme.Accent, 0.18, 1)
-	local compactHalo = Util.New("Frame", {
-		Name = "CompactHalo",
-		Position = UDim2.fromOffset(3, 3),
-		Size = UDim2.new(1, -6, 1, -6),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 34,
-	}, State.UI.CompactBar)
-	Util.Corner(compactHalo, 999)
-	Util.Stroke(compactHalo, Theme.AccentHot, 0.76, 3)
-	Util.New("UIAspectRatioConstraint", {
-		AspectRatio = 6.20,
-		DominantAxis = Enum.DominantAxis.Width,
-	}, State.UI.CompactBar)
-	Util.New("UISizeConstraint", {
-		MinSize = Vector2.new(280, 46),
-		MaxSize = Vector2.new(480, 78),
-	}, State.UI.CompactBar)
-
-	local compactSurface = Util.New("Frame", {
-		Name = "Surface",
-		Position = UDim2.fromOffset(2, 2),
-		Size = UDim2.new(1, -4, 1, -4),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BorderSizePixel = 0,
-		ZIndex = 31,
-	}, State.UI.CompactBar)
-	Util.Corner(compactSurface, 999)
-	Util.GlassGradient(
-		compactSurface,
-		Color3.fromRGB(27, 23, 31),
-		Color3.fromRGB(10, 11, 16),
-		0.03,
-		0.01,
-		90
-	)
-	Util.InnerHighlight(compactSurface, 12, 0.88, 32)
-
-	State.UI.CompactStatus = Util.New("TextLabel", {
-		Position = UDim2.fromScale(0.05, 0.14),
-		Size = UDim2.fromScale(0.70, 0.30),
-		BackgroundTransparency = 1,
-		Text = "VISION X | MENU",
-		TextColor3 = Theme.Text,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 33,
-	}, State.UI.CompactBar)
-
-	State.UI.CompactSub = Util.New("TextLabel", {
-		Position = UDim2.fromScale(0.05, 0.49),
-		Size = UDim2.fromScale(0.70, 0.25),
-		BackgroundTransparency = 1,
-		Text = "Mira desativada",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.Gotham,
-		TextSize = 7,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 33,
-	}, State.UI.CompactBar)
-
-	State.UI.CompactDragArea = Util.New("TextButton", {
-		Size = UDim2.fromScale(0.75, 1),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Text = "",
-		AutoButtonColor = false,
-		Active = true,
-		ZIndex = 34,
-	}, State.UI.CompactBar)
-
-	State.UI.CompactOpen = Util.New("TextButton", {
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -5, 0.5, 0),
-		Size = UDim2.new(0.22, 0, 1, -12),
-		BackgroundColor3 = Theme.Accent,
-		BackgroundTransparency = 0.02,
-		BorderSizePixel = 0,
-		Text = "ABRIR",
-		TextColor3 = Color3.fromRGB(255, 255, 255),
-		Font = Enum.Font.GothamBlack,
-		TextSize = 10,
-		TextStrokeColor3 = Theme.AccentDeep,
-		TextStrokeTransparency = 0.32,
-		AutoButtonColor = false,
-		ZIndex = 35,
-	}, State.UI.CompactBar)
-	Util.Corner(State.UI.CompactOpen, 999)
-	Util.InnerHighlight(State.UI.CompactOpen, 12, 0.55, 36)
-	Util.Stroke(State.UI.CompactOpen, Theme.Accent2, 0.04, 2)
-	UI.TouchFeedback(State.UI.CompactOpen)
+	UI.CreateCompactLauncher(root)
 
 	-- Optional two-button mobile support bar. The AIM button is also the drag
 	-- surface while unlocked; the adjacent FIXO button locks its position.
@@ -16177,7 +16454,8 @@ local function WireVisionGeneralUI()
 		State.UI.Main.Position = expandedPosition
 		UI.SetWindowVisible(State.UI.Main, true, true)
 		UI.SetWindowVisible(State.UI.CompactBar, false, true)
-		State.UI.CompactBar.Position = UDim2.fromScale(0.5, 0.09)
+		State.UI.ResetLauncherInput()
+		State.UI.CompactBar.Position = UDim2.new(0, 16, 0.36, 0)
 		State.UI.MobileQuickControls.Position = UDim2.new(0, 16, 0.62, 0)
 		State.UI.Maximize.Text = "+"
 		if State.UI.ResizeHandle then
@@ -16224,13 +16502,13 @@ local function WireVisionGeneralUI()
 		end
 
 		minimized = true
-		State.UI.CompactSub.Text = State.UI.Status.Text
+		State.UI.ResetLauncherInput()
 		UI.SetWindowVisible(State.UI.Main, false)
 		UI.SetWindowVisible(State.UI.CompactBar, true)
 		task.defer(UI.ClampMovableToViewport)
 	end)
 
-	State.UI.CompactOpen.MouseButton1Click:Connect(function()
+	UI.BindCompactLauncher(function()
 		if not minimized then
 			return
 		end
@@ -16321,10 +16599,6 @@ local function WireVisionGeneralUI()
 		MenuInput = nil,
 		MenuStart = nil,
 		MenuOrigin = nil,
-		Compact = false,
-		CompactInput = nil,
-		CompactStart = nil,
-		CompactOrigin = nil,
 		Quick = false,
 		QuickInput = nil,
 		QuickStart = nil,
@@ -16438,20 +16712,6 @@ local function WireVisionGeneralUI()
 		end)
 	end
 
-	State.UI.CompactDragArea.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if drag.CompactInput and drag.CompactInput ~= input then
-				return
-			end
-
-			UI.FinishWindowMotion(State.UI.CompactBar)
-			drag.Compact = true
-			drag.CompactInput = input
-			drag.CompactStart = input.Position
-			drag.CompactOrigin = State.UI.CompactBar.Position
-		end
-	end)
 
 	State.UI.MobileQuickDragArea.InputBegan:Connect(function(input)
 		drag.QuickMoved = false
@@ -16561,36 +16821,6 @@ local function WireVisionGeneralUI()
 			expandedPosition = State.UI.Main.Position
 		end
 
-		if drag.Compact and inputMatches(drag.CompactInput, input) then
-			local delta = input.Position - drag.CompactStart
-			local viewport = S.Camera and S.Camera.ViewportSize or Vector2.new(800, 450)
-			local compact = State.UI.CompactBar
-			local size = compact.AbsoluteSize
-			local anchor = compact.AnchorPoint
-			local origin = drag.CompactOrigin
-			local baseX = viewport.X * origin.X.Scale
-			local baseY = viewport.Y * origin.Y.Scale
-			local anchorX = Util.ClampAnchoredAxis(
-				baseX + origin.X.Offset + delta.X,
-				size.X,
-				anchor.X,
-				viewport.X,
-				6
-			)
-			local anchorY = Util.ClampAnchoredAxis(
-				baseY + origin.Y.Offset + delta.Y,
-				size.Y,
-				anchor.Y,
-				viewport.Y,
-				6
-			)
-			compact.Position = UDim2.new(
-				origin.X.Scale,
-				anchorX - baseX,
-				origin.Y.Scale,
-				anchorY - baseY
-			)
-		end
 
 		if drag.Quick
 			and not Config.MobileQuickLocked
@@ -16649,10 +16879,6 @@ local function WireVisionGeneralUI()
 			drag.Menu = false
 			drag.MenuInput = nil
 		end
-		if inputFinished(drag.CompactInput, input) then
-			drag.Compact = false
-			drag.CompactInput = nil
-		end
 		if inputFinished(drag.QuickInput, input) then
 			drag.Quick = false
 			drag.QuickInput = nil
@@ -16682,6 +16908,7 @@ local function WireVisionGeneralUI()
 		end
 
 		settleWindow()
+		State.UI.ResetLauncherInput()
 		UI.FinishWindowMotion(State.UI.CompactBar)
 		UI.FinishPageTransition()
 		setMaximizeConstraint()
@@ -17662,7 +17889,7 @@ local function InitializeVisionX()
 		end)
 	end)
 	Loading.Finish()
-	print(string.format("[VisionX V35.1.2] Menu iniciado: %d tarefas concluídas em %.2f s.",
+	print(string.format("[VisionX V35.2.0] Menu iniciado: %d tarefas concluídas em %.2f s.",
 		State.InitializationReport.Tasks,State.InitializationReport.Seconds))
 end
 
