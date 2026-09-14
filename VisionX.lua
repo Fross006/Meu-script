@@ -1,4 +1,4 @@
--- V35.1.0 — ESP refeito: contorno normal, modo 2D configurável e nova aba ESP.
+-- V35.1.1 — progresso por 17 tarefas reais; abertura independente da animação.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -1592,10 +1592,11 @@ function Runtime.GetRenderPriority()
 		or Enum.RenderPriority.Camera.Value + 5
 end
 
--- The percentage counts finished initialization stages, never elapsed time.
--- Avatar pictures and the optional body preview retain their live fallbacks.
+-- Progress measures completed menu initialization tasks, not network bytes.
+-- Player photos and the optional 3D preview load independently and are identified as such.
 local Loading = {
-	Names = {"Interface", "Mira", "Corpo", "Jogadores", "ESP", "Configurações"},
+	Names = {"Interface", "Mira e armas", "Corpo", "Jogadores", "ESP", "Configurações"},
+	TasksPerStage = {1,2,1,2,2,9},
 	Cancelled = {},
 	Colors = {
 		Panel = Color3.fromRGB(17, 20, 25), Card = Color3.fromRGB(26, 29, 35),
@@ -1853,43 +1854,34 @@ end
 
 function Loading.Tick(session, dt)
 	if session ~= Loading.Session or session.Destroyed then return end
-	dt = math.clamp(dt, 0, .1)
+	dt = math.clamp(dt,0,.1)
 	session.Time += dt
 	if session.Phase ~= "failed" then
 		session.Arc.Rotation = (session.Time*120)%360
-		for _, row in ipairs(session.Rows) do
+		for _,row in ipairs(session.Rows) do
 			if row.State == "loading" then row.Spinner.Rotation = (session.Time*240)%360 end
 		end
 	end
-	session.ProgressTime = math.min(session.ProgressTime+dt, .18)
-	local p = 1-(1-session.ProgressTime/.18)^3
-	session.DisplayProgress = session.ProgressFrom+(session.Progress-session.ProgressFrom)*p
-	session.Fill.Size = UDim2.fromScale(session.DisplayProgress, 1)
 	if session.Phase == "leaving" then
 		session.ExitTime += dt
-		session.Opacity = 1-math.sin(math.min(session.ExitTime/.26, 1)*math.pi/2)
+		local startOpacity = session.ExitOpacity or session.Opacity
+		session.ExitOpacity = startOpacity
+		session.Opacity = startOpacity*(1-math.sin(math.min(session.ExitTime/.26,1)*math.pi/2))
 		Loading.PaintOpacity(session)
 		if session.ExitTime >= .26 then Loading.Destroy() end
 		return
 	end
-	local opacity = 1-(1-math.min(session.Time/.28, 1))^4
+	local opacity = 1-(1-math.min(session.Time/.28,1))^4
 	if opacity ~= session.Opacity then session.Opacity = opacity; Loading.PaintOpacity(session) end
-	if session.Phase == "ready" and session.ProgressTime >= .18 and session.Time >= .28 then
-		session.Phase, session.ExitTime = "leaving", 0
-		local ready = session.OnReady
-		session.OnReady = nil
-		if ready then
-			local ok, problem = pcall(ready)
-			if not ok then Loading.HandleError(problem) end
-		end
-	end
 end
 
 function Loading.Create()
 	Loading.Destroy()
 	local c = Loading.Colors
 	local session = {Rows = {}, Connections = {}, OpacityMap = {}, Opacity = 1, Time = 0,
-		Phase = "loading", Completed = 0, Progress = 0, DisplayProgress = 0, ProgressFrom = 0, ProgressTime = .18}
+		Phase = "loading", Completed = 0, TasksCompleted = 0, TotalTasks = 0,
+		Progress = 0, DisplayProgress = 0, History = {}, StartedAt = os.clock()}
+	for _,count in ipairs(Loading.TasksPerStage) do session.TotalTasks += count end
 	Loading.Session = session
 	session.Root = Loading.New("ScreenGui", {Name = "VisionX_Loading", ResetOnSpawn = false,
 		IgnoreGuiInset = true, DisplayOrder = 1000001, ZIndexBehavior = Enum.ZIndexBehavior.Sibling}, S.PlayerGui)
@@ -1929,7 +1921,7 @@ function Loading.Create()
 	Loading.Round(session.Version, 99); Loading.Stroke(session.Version,c.Border,1,.45)
 	Loading.Text(session.Version,"V35",0,0, 70,30,18,c.Red,true,true)
 	session.Welcome = Loading.Text(session.Left,"Bem-vindo ao VisionX.",0,0,0,50,36,c.Text,true,true)
-	session.Subtitle = Loading.Text(session.Left,"Estamos preparando seu menu.",0,0,0,28,20,c.Sub,false,true)
+	session.Subtitle = Loading.Text(session.Left,"Imagens e prévia 3D carregam à parte.",0,0,0,28,20,c.Sub,false,true)
 	session.ProgressBox = Loading.New("Frame", {BackgroundTransparency = 1}, session.Left)
 	session.Current = Loading.Text(session.ProgressBox,"Preparando interface…",0,0,400,26,18)
 	session.Current.Size = UDim2.new(1,-60,0,26)
@@ -1941,7 +1933,7 @@ function Loading.Create()
 	session.Fill = Loading.New("Frame", {Name = "ProgressFill", Size = UDim2.fromScale(0,1), BackgroundColor3 = Color3.new(1,1,1)}, bar)
 	Loading.Round(session.Fill,99)
 	Loading.New("UIGradient", {Color = ColorSequence.new(Color3.fromRGB(255,101,110),c.Red), Rotation = 90}, session.Fill)
-	session.Footer = Loading.Text(session.Left,"O menu abre quando tudo estiver pronto.",0,0,0,26,16,c.Sub,false,true)
+	session.Footer = Loading.Text(session.Left,"As tarefas avançam somente ao terminar.",0,0,0,26,16,c.Sub,false,true)
 	session.RightTitle = Loading.Text(session.Right,"Preparando componentes",0,0,0,36,25,c.Text,true)
 	for index, name in ipairs(Loading.Names) do
 		local row = {}
@@ -1985,6 +1977,7 @@ function Loading.Create()
 	session.RenderConnection = S.RunService.RenderStepped:Connect(function(dt) Loading.Tick(session,dt) end)
 	session.Connections[#session.Connections+1] = session.RenderConnection
 	session.Built = true
+	Loading.UpdateProgress(session)
 	return session
 end
 
@@ -1996,28 +1989,58 @@ function Loading.Yield()
 	end
 end
 
+function Loading.UpdateProgress(session)
+	-- Only completed work changes these values. Animation time never enters
+	-- the numerator, and this counter does not represent downloaded bytes.
+	session.Progress = session.TasksCompleted/session.TotalTasks
+	session.DisplayProgress = session.Progress
+	session.Fill.Size = UDim2.fromScale(session.Progress,1)
+	session.Percent.Text = string.format("%d%%",math.floor(session.Progress*100+.5))
+	session.Footer.Text = string.format("%d de %d tarefas do menu concluídas.",session.TasksCompleted,session.TotalTasks)
+end
+
+function Loading.Step(name, work)
+	local session = Loading.Session
+	assert(session and session.Phase == "loading" and session.Active == session.Completed+1,
+		"Tarefa fora da etapa de inicialização")
+	assert(not session.InStep and type(work) == "function", "Tarefa de inicialização inválida")
+	assert(session.StageTasks < Loading.TasksPerStage[session.Active], "Tarefas extras na inicialização")
+	session.InStep,session.ActiveTask = true,name
+	session.Current.Text = name .. "…"
+	Loading.Yield() -- Give the renderer the current task before synchronous work.
+	local started = os.clock()
+	work()
+	if not Runtime.Alive or session ~= Loading.Session or session.Destroyed then error(Loading.Cancelled,0) end
+	session.History[#session.History+1] = {Name=name,Stage=session.Active,Seconds=os.clock()-started}
+	session.TasksCompleted += 1
+	session.StageTasks += 1
+	session.InStep = false
+	Loading.UpdateProgress(session)
+end
+
 function Loading.Stage(index, work)
 	local session = Loading.Session
-	assert(session and index == session.Completed+1, "Etapa de inicialização fora de ordem")
-	session.Active = index
-	session.Current.Text = "Carregando " .. Loading.Names[index] .. "…"
+	assert(session and index == session.Completed+1 and session.Phase == "loading", "Etapa de inicialização fora de ordem")
+	session.Active,session.StageTasks = index,0
 	Loading.PaintRow(session,index,"loading")
-	Loading.Yield()
 	work()
-	if not Runtime.Alive or session ~= Loading.Session then error(Loading.Cancelled,0) end
+	if not Runtime.Alive or session ~= Loading.Session or session.Destroyed then error(Loading.Cancelled,0) end
+	assert(session.StageTasks == Loading.TasksPerStage[index] and not session.InStep,
+		"Etapa terminou sem concluir todas as tarefas")
 	session.Completed = index
-	session.ProgressFrom, session.ProgressTime = session.DisplayProgress, 0
-	session.Progress = index/#Loading.Names
-	session.Percent.Text = string.format("%d%%", math.floor(session.Progress*100+.5))
 	Loading.PaintRow(session,index,"done")
 end
 
-function Loading.Finish(onReady)
+function Loading.Finish()
 	local session = Loading.Session
-	assert(session and session.Completed == #Loading.Names, "Inicialização incompleta")
-	session.Current.Text = "Tudo pronto!"
-	session.Subtitle.Text = "Seu menu está pronto."
-	session.Phase, session.OnReady = "ready", onReady
+	assert(session and session.Completed == #Loading.Names and session.TasksCompleted == session.TotalTasks,
+		"Inicialização incompleta")
+	assert(State.UI.Root and State.UI.Root.Parent and State.UI.Root.Enabled, "O menu ainda não foi aberto")
+	session.Current.Text = "Menu iniciado"
+	-- The menu is already running. Only the cosmetic splash fade remains.
+	session.Phase,session.ExitTime = "leaving",0
+	session.Backdrop.Active,session.Panel.Active = false,false
+	State.InitializationReport = {Tasks=session.TasksCompleted,Seconds=os.clock()-session.StartedAt,History=session.History}
 end
 
 function Loading.HandleError(problem)
@@ -2035,7 +2058,7 @@ function Loading.HandleError(problem)
 	session.Welcome.TextSize = 30
 	session.Subtitle.Text = "Feche esta tela e execute o script novamente."
 	session.Subtitle.TextSize = 16
-	session.Current.Text = "Falha em " .. Loading.Names[session.Active or 1]
+	session.Current.Text = "Falha: " .. (session.ActiveTask or Loading.Names[session.Active or 1])
 	session.Footer.Visible = false; session.Close.Visible = true
 	session.Fill.Parent.Visible = false
 	if session.RenderConnection then session.RenderConnection:Disconnect() end
@@ -17572,56 +17595,70 @@ end
 local function InitializeVisionX()
 	ClearPreviousVisionUI()
 	Loading.Create()
-	Loading.Stage(1, function()
-		BuildVisionRootUI()
-		Runtime.Track(State.UI.CleanupEvent.Event:Connect(Runtime.Cleanup))
-		Runtime.Track(State.UI.Root.Destroying:Connect(Runtime.Cleanup))
-		Runtime.Track(State.UI.Root.AncestryChanged:Connect(function(_, parent)
-			if not parent then Runtime.Cleanup() end
-		end))
+	Loading.Stage(1,function()
+		Loading.Step("Montando a estrutura do menu",function()
+			BuildVisionRootUI()
+			assert(State.UI.Root and State.UI.Root.Parent and State.UI.Main,"Estrutura do menu incompleta")
+			Runtime.Track(State.UI.CleanupEvent.Event:Connect(Runtime.Cleanup))
+			Runtime.Track(State.UI.Root.Destroying:Connect(Runtime.Cleanup))
+			Runtime.Track(State.UI.Root.AncestryChanged:Connect(function(_,parent)
+				if not parent then Runtime.Cleanup() end
+			end))
+		end)
 	end)
-
 	State.UI.Pages = {}
-	Loading.Stage(2, function()
-		State.UI.Pages.Aim = Pages.BuildVisionAim()
-		Loading.Yield()
-		State.UI.Pages.Assistant = Pages.BuildAssistant()
+	local function buildPage(key, name, constructor)
+		Loading.Step("Criando a aba "..name,function()
+			local page = constructor()
+			assert(page and page.Parent,"Aba "..name.." incompleta")
+			State.UI.Pages[key] = page
+		end)
+	end
+	Loading.Stage(2,function()
+		buildPage("Aim","Mira",Pages.BuildVisionAim)
+		buildPage("Assistant","Armas",Pages.BuildAssistant)
 	end)
-	Loading.Stage(3, function()
-		State.UI.Pages.Body = Pages.BuildBody()
+	Loading.Stage(3,function()
+		buildPage("Body","Corpo",Pages.BuildBody)
 	end)
-	Loading.Stage(4, function()
-		State.UI.Pages.Players = Pages.BuildPlayers()
-		-- Subscribe before the initial snapshot; players joining during a yield
-		-- must not disappear from the directory or character cache.
-		WireVisionRuntimeEvents()
-		for index, player in ipairs(S.Players:GetPlayers()) do
-			if player.Parent == S.Players then SetupPlayer(player) end
-			if index % 8 == 0 then Loading.Yield() end
-		end
+	Loading.Stage(4,function()
+		buildPage("Players","Jogadores",Pages.BuildPlayers)
+		Loading.Step("Preparando os jogadores",function()
+			WireVisionRuntimeEvents()
+			local players = S.Players:GetPlayers()
+			for index,player in ipairs(players) do
+				if player.Parent == S.Players then SetupPlayer(player) end
+				if Loading.Session then
+					Loading.Session.Current.Text = string.format("Jogadores verificados: %d de %d",index,#players)
+				end
+				if index%8 == 0 then Loading.Yield() end
+			end
+		end)
 	end)
-	Loading.Stage(5, function()
-		State.UI.Pages.ESP = Pages.BuildESP()
-		ESP.RefreshAll()
+	Loading.Stage(5,function()
+		buildPage("ESP","ESP",Pages.BuildESP)
+		Loading.Step("Preparando o ESP",ESP.RefreshAll)
 	end)
-	Loading.Stage(6, function()
-		State.UI.Pages.Engine = Pages.BuildEngine()
-		Loading.Yield()
-		BuildNavigation()
-		WireVisionGeneralUI()
-		UI.WireWorldTapSelection()
-		UI.RefreshQuick()
-		UI.InitializeMotion()
-		StartLoops()
-		StartRender()
+	Loading.Stage(6,function()
+		buildPage("Engine","Ajustes",Pages.BuildEngine)
+		Loading.Step("Ligando a navegação",BuildNavigation)
+		Loading.Step("Conectando os controles",WireVisionGeneralUI)
+		Loading.Step("Preparando a seleção por toque",UI.WireWorldTapSelection)
+		Loading.Step("Sincronizando os atalhos",UI.RefreshQuick)
+		Loading.Step("Preparando as animações",UI.InitializeMotion)
+		Loading.Step("Iniciando o acompanhamento",StartLoops)
+		Loading.Step("Iniciando a renderização",StartRender)
+		Loading.Step("Abrindo o menu",function()
+			assert(Runtime.Alive and State.UI.Root and State.UI.Root.Parent,"Menu indisponível")
+			State.UI.Root.Enabled = true
+			UI.SetWindowVisible(State.UI.Main,true)
+		end)
 	end)
-	Loading.Finish(function()
-		if not Runtime.Alive or not State.UI.Root or not State.UI.Root.Parent then return end
-		State.UI.Root.Enabled = true
-		UI.SetWindowVisible(State.UI.Main, true)
-		print("[VisionX V35.1.0 - ESP] carregado")
-	end)
+	Loading.Finish()
+	print(string.format("[VisionX V35.1.1] Menu iniciado: %d tarefas concluídas em %.2f s.",
+		State.InitializationReport.Tasks,State.InitializationReport.Seconds))
 end
+
 
 do
 	local ok, problem = xpcall(InitializeVisionX, function(problem)
