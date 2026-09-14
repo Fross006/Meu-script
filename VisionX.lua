@@ -1,4 +1,4 @@
--- V35.0.4 — ESP com recuperação por jogador, contorno único e marcação independente.
+-- V35.1.0 — ESP refeito: contorno normal, modo 2D configurável e nova aba ESP.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -568,6 +568,31 @@ local Config = {
 	ESPUseTeamColors = false,
 	SelectedESP = true,
 	ESPLabels = true,
+	-- ESP appearance is independent of aim and target-selection settings.
+	ESPRenderMode = "NORMAL",
+	ESPColorPreset = "THEME",
+	ESPThroughWalls = true,
+	ESPMaxDistance = 0,
+	ESPFillOpacity = 14,
+	ESPOutlineOpacity = 100,
+	ESPLabelNames = true,
+	ESPLabelDistance = true,
+	ESPLabelTeam = false,
+	ESPNameMode = "DISPLAY",
+	ESPTextSize = 12,
+	ESP2DBox = true,
+	ESP2DStyle = "FULL",
+	ESP2DThickness = 1,
+	ESP2DOutline = true,
+	ESP2DOpacity = 100,
+	ESP2DFillOpacity = 0,
+	ESP2DPadding = 2,
+	ESP2DHealth = true,
+	ESP2DHealthText = false,
+	ESP2DHealthSide = "LEFT",
+	ESP2DTracers = false,
+	ESP2DTracerOrigin = "BOTTOM",
+
 
 	DebugEnabled = false,
 	DebugShowTargetLine = true,
@@ -890,6 +915,29 @@ function Persistence.FiniteNumber(value, fallback)
 end
 
 function Persistence.NormalizeConfig()
+
+	local espRanges = {
+		ESPMaxDistance={0,20000}, ESPFillOpacity={0,100}, ESPOutlineOpacity={0,100},
+		ESPTextSize={9,20}, ESP2DThickness={1,4}, ESP2DOpacity={10,100},
+		ESP2DFillOpacity={0,60}, ESP2DPadding={0,12},
+	}
+	for key,bounds in pairs(espRanges) do
+		Config[key]=math.clamp(math.floor(Persistence.FiniteNumber(Config[key],Persistence.DefaultConfig[key])+.5),bounds[1],bounds[2])
+	end
+	local espChoices = {
+		ESPRenderMode={NORMAL=true,["2D"]=true,BOTH=true},
+		ESPColorPreset={THEME=true,RED=true,WHITE=true,CYAN=true,GREEN=true,PURPLE=true,YELLOW=true},
+		ESPNameMode={DISPLAY=true,USERNAME=true}, ESP2DStyle={FULL=true,CORNERS=true},
+		ESP2DHealthSide={LEFT=true,RIGHT=true}, ESP2DTracerOrigin={BOTTOM=true,CENTER=true},
+	}
+	for key,choices in pairs(espChoices) do
+		if type(Config[key])~="string" or not choices[Config[key]] then Config[key]=Persistence.DefaultConfig[key] end
+	end
+	for _,key in ipairs({"ESPEnabled","GlobalESP","ESPEnemies","ESPAllies","ESPUseTeamColors","SelectedESP","ESPLabels",
+		"ESPThroughWalls","ESPLabelNames","ESPLabelDistance","ESPLabelTeam","ESP2DBox","ESP2DOutline","ESP2DHealth","ESP2DHealthText","ESP2DTracers"}) do
+		if type(Config[key])~="boolean" then Config[key]=Persistence.DefaultConfig[key] end
+	end
+
 	local ranges = {
 		Accuracy = {0, 100},
 		AimStrength = {0, 100},
@@ -2522,11 +2570,9 @@ function PlayerCache.Get(player)
 		Root = nil,
 		BodyParts = {},
 		Highlight = nil,
-		SelectedHighlight = nil,
-		VisualFolder = nil,
-		Marker = nil,
-		MarkerParts = nil,
 		ESPRefreshing = false,
+		Overlay = nil,
+		ESPBounds = nil,
 		Label = nil,
 		LabelText = nil,
 		DisplayDistance = nil,
@@ -2968,33 +3014,16 @@ end
 -- ESP
 --==============================================================
 
-local ESP = {}
-
-function ESP.ColorFor(player)
-	if Config.ESPUseTeamColors then
-		return Util.TeamColor(player)
-	end
-
-	return Theme.Accent
-end
-
-function ESP.ShouldShow(player)
-	if player == S.LocalPlayer then
-		return false
-	end
-
-	if not Config.ESPEnabled then
-		return false
-	end
-
-	if Config.GlobalESP then
-		return true
-	end
-
-	return Universal.ESPRelationAllowed(
-		player
-	)
-end
+local ESP = {
+	RenderName = "VisionX_ESP_Render",
+	LastRecovery = 0,
+	Colors = {
+		RED = Color3.fromRGB(244, 66, 94), WHITE = Color3.fromRGB(240, 243, 250),
+		CYAN = Color3.fromRGB(66, 207, 240), GREEN = Color3.fromRGB(83, 222, 146),
+		PURPLE = Color3.fromRGB(179, 132, 247), YELLOW = Color3.fromRGB(248, 205, 87),
+	},
+	Edges = {{1,2},{1,3},{1,5},{2,4},{2,6},{3,4},{3,7},{4,8},{5,6},{5,7},{6,8},{7,8}},
+}
 
 function ESP.RecordError(problem)
 	State.ESPRecoveries += 1
@@ -3002,41 +3031,215 @@ function ESP.RecordError(problem)
 end
 
 function ESP.SelectedAllowed(player)
-	return player ~= S.LocalPlayer and Config.ESPEnabled and Config.SelectedESP
+	return Config.ESPEnabled and Config.SelectedESP and player ~= S.LocalPlayer
 		and State.SelectedPlayers[player] == true
+end
+
+function ESP.ShouldShow(player)
+	return player ~= S.LocalPlayer and player.Parent == S.Players and Config.ESPEnabled
+		and (Config.GlobalESP or ESP.SelectedAllowed(player) or Universal.ESPRelationAllowed(player))
+end
+
+function ESP.ColorFor(player)
+	if ESP.SelectedAllowed(player) then return Theme.Accent2 end
+	if Config.ESPUseTeamColors then return Util.TeamColor(player) end
+	return ESP.Colors[Config.ESPColorPreset] or Theme.Accent
+end
+
+function ESP.UsesNormal()
+	return Config.ESPRenderMode ~= "2D"
+end
+
+function ESP.Uses2D()
+	return Config.ESPRenderMode == "2D" or Config.ESPRenderMode == "BOTH"
+end
+
+function ESP.DestroyField(record, key)
+	local object = record[key]
+	record[key] = nil
+	if object then pcall(function() object:Destroy() end) end
+end
+
+function ESP.ClearLabel(record)
+	ESP.DestroyField(record, "Label")
+	record.LabelText, record.LastLabelText = nil, nil
+end
+
+function ESP.Clear2D(record)
+	if record.Overlay then
+		local root = record.Overlay.Root
+		record.Overlay = nil
+		pcall(function() root:Destroy() end)
+	end
+end
+
+function ESP.Clear(record)
+	if not record then return end
+	ESP.Clear2D(record)
+	ESP.ClearLabel(record)
+	ESP.DestroyField(record, "Highlight")
+	record.ESPBounds, record.ESPRayParams, record.ESPVisible, record.ESPVisibilityAt = nil, nil, nil, nil
 end
 
 function ESP.ReconcileRecord(record)
 	local player, character = record.Player, record.Player.Character
 	if character and not character:IsA("Model") then character = nil end
-	local linked = record.CharacterConnections and #record.CharacterConnections >= 3
+	local linked = record.OnPartsRefreshed and #record.CharacterConnections >= 3
 	if linked then
-		for _, connection in ipairs(record.CharacterConnections) do if not connection.Connected then linked = false; break end end
+		for _, connection in ipairs(record.CharacterConnections) do
+			if not connection.Connected then linked = false; break end
+		end
 	end
-	if character ~= record.Character or character and (not record.OnPartsRefreshed or not linked) then
+	if character ~= record.Character or character and not linked then
 		ESP.Clear(record)
 		PlayerCache.BindCharacter(player, character)
 		if character and BindImmediateESPCharacterEvents then BindImmediateESPCharacterEvents(player, record) end
 	elseif character and character:IsDescendantOf(S.Workspace) then
 		local humanoid = record.Humanoid
-		local missingHumanoid = not humanoid and character:FindFirstChildWhichIsA("Humanoid", true)
 		if not PlayerCache.PartBelongsToRecord(record, record.Root)
 			or not PlayerCache.PartBelongsToRecord(record, record.Head)
 			or humanoid and not humanoid:IsDescendantOf(character)
-			or missingHumanoid then
+			or not humanoid and character:FindFirstChildWhichIsA("Humanoid", true) then
 			PlayerCache.RefreshBodyParts(record)
 			if record.OnPartsRefreshed then record.OnPartsRefreshed(character) end
 		end
 	end
 end
 
-function ESP.MarkerBounds(record, anchor)
-	local low, high, seen = nil, nil, {}
+function ESP.Distance(record, camera)
+	local root = record.Root
+	if not camera or not PlayerCache.PartBelongsToRecord(record, root) then return nil end
+	local distance = (root.Position - camera.CFrame.Position).Magnitude
+	return distance == distance and distance < math.huge and distance or nil
+end
+
+function ESP.InRange(distance)
+	return distance ~= nil and (Config.ESPMaxDistance == 0 or distance <= Config.ESPMaxDistance)
+end
+
+function ESP.TextFor(record, distance)
+	if not Config.ESPLabels then return "" end
+	local parts = {}
+	if Config.ESPLabelNames then
+		parts[#parts + 1] = Config.ESPNameMode == "USERNAME" and ("@" .. record.Player.Name) or record.Player.DisplayName
+	end
+	if Config.ESPLabelDistance and distance then parts[#parts + 1] = tostring(math.floor(distance + .5)) .. " studs" end
+	if Config.ESPLabelTeam then parts[#parts + 1] = Util.TeamName(record.Player) end
+	return table.concat(parts, " · ")
+end
+
+function ESP.EnsureFolder()
+	if not ESP.Folder or ESP.Folder.Parent ~= S.Workspace then
+		ESP.DestroyField(ESP, "Folder")
+		ESP.Folder = Util.New("Folder", {Name = "VisionX_ESP_Contours"}, S.Workspace)
+	end
+	return ESP.Folder
+end
+
+function ESP.EnsureRoot()
+	if not ESP.Root or ESP.Root.Parent ~= S.PlayerGui then
+		ESP.DestroyField(ESP, "Root")
+		ESP.Root = Util.New("ScreenGui", {Name = "VisionX_ESP_2D", ResetOnSpawn = false,
+			IgnoreGuiInset = true, DisplayOrder = 5, ZIndexBehavior = Enum.ZIndexBehavior.Sibling}, S.PlayerGui)
+	end
+	ESP.Root.Enabled = Config.ESPEnabled and ESP.Uses2D()
+	return ESP.Root
+end
+
+function ESP.EnsureNormal(record, enabled)
+	if not ESP.UsesNormal() then ESP.DestroyField(record, "Highlight"); return end
+	local parent = ESP.EnsureFolder()
+	if not record.Highlight or record.Highlight.Parent ~= parent then
+		ESP.DestroyField(record, "Highlight")
+		record.Highlight = Util.New("Highlight", {Name = "Player_" .. record.Player.UserId}, parent)
+	end
+	local color = ESP.ColorFor(record.Player)
+	local highlight = record.Highlight
+	highlight.Adornee = record.Character
+	highlight.DepthMode = Config.ESPThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+	highlight.FillColor, highlight.OutlineColor = color, color
+	highlight.FillTransparency = 1 - Config.ESPFillOpacity / 100
+	highlight.OutlineTransparency = 1 - Config.ESPOutlineOpacity / 100
+	highlight.Enabled = enabled
+end
+
+function ESP.EnsureLabel(record, enabled, distance)
+	-- In combined mode, screen labels belong to the 2D layer only.
+	local text = ESP.TextFor(record, distance)
+	if ESP.Uses2D() or text == "" then ESP.ClearLabel(record); return end
+	local anchor = PlayerCache.PartBelongsToRecord(record, record.Head) and record.Head or record.Root
+	if not record.Label or record.Label.Parent ~= S.PlayerGui then
+		ESP.ClearLabel(record)
+		record.Label = Util.New("BillboardGui", {Name = "VisionX_ESP_Label_" .. record.Player.UserId,
+			ResetOnSpawn = false, Active = false, LightInfluence = 0, MaxDistance = 0,
+			Size = UDim2.fromOffset(280, 26), StudsOffsetWorldSpace = Vector3.new(0, 2, 0)}, S.PlayerGui)
+	end
+	if not record.LabelText or record.LabelText.Parent ~= record.Label then
+		ESP.DestroyField(record, "LabelText")
+		record.LabelText = ESP.NewText(record.Label, "Name")
+		record.LabelText.Size = UDim2.fromScale(1, 1)
+	end
+	record.Label.Adornee, record.Label.Enabled = anchor, enabled
+	record.Label.AlwaysOnTop = Config.ESPThroughWalls
+	record.Label.MaxDistance, record.Label.PlayerToHideFrom = 0, nil
+	record.Label.ResetOnSpawn, record.Label.LightInfluence = false, 0
+	record.LabelText.Text, record.LabelText.TextSize = text, Config.ESPTextSize
+	record.LabelText.TextColor3 = ESP.ColorFor(record.Player)
+	record.LabelText.Visible, record.LabelText.TextTransparency = true, 0
+end
+
+function ESP.NewText(parent, name)
+	return Util.New("TextLabel", {Name = name, BackgroundTransparency = 1, BorderSizePixel = 0,
+		Text = "", TextColor3 = Theme.Accent, TextStrokeColor3 = Color3.new(0,0,0), TextStrokeTransparency = .25,
+		TextSize = Config.ESPTextSize, Font = Enum.Font.GothamMedium, TextTruncate = Enum.TextTruncate.AtEnd,
+		TextWrapped = false, TextScaled = false, Active = false, ZIndex = 4}, parent)
+end
+
+function ESP.NewLine(parent)
+	local outer = Util.New("Frame", {Name = "Line", AnchorPoint = Vector2.new(.5,.5),
+		BackgroundColor3 = Color3.new(0,0,0), BorderSizePixel = 0, Active = false, ZIndex = 2}, parent)
+	local inner = Util.New("Frame", {Name = "Color", BackgroundColor3 = Theme.Accent,
+		BorderSizePixel = 0, Active = false, ZIndex = 3}, outer)
+	return {Outer = outer, Inner = inner}
+end
+
+function ESP.Ensure2D(record)
+	if not ESP.Uses2D() then ESP.Clear2D(record); return end
+	local parent, overlay = ESP.EnsureRoot(), record.Overlay
+	local intact = overlay and overlay.Root and overlay.Root.Parent == parent and overlay.Objects and #overlay.Objects >= 24
+	if intact then
+		for _, object in ipairs(overlay.Objects) do
+			if not object:IsDescendantOf(overlay.Root) then intact = false; break end
+		end
+	end
+	if intact then return end
+	ESP.Clear2D(record)
+	overlay = {Lines = {}, Objects = {}}
+	record.Overlay = overlay
+	overlay.Root = Util.New("Frame", {Name = "Player_" .. record.Player.UserId,
+		Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, BorderSizePixel = 0,
+		Visible = false, Active = false}, parent)
+	overlay.Fill = Util.New("Frame", {Name = "Fill", BackgroundTransparency = 1,
+		BorderSizePixel = 0, Active = false, ZIndex = 1}, overlay.Root)
+	for index = 1, 8 do overlay.Lines[index] = ESP.NewLine(overlay.Root) end
+	overlay.Tracer = ESP.NewLine(overlay.Root)
+	overlay.HealthTrack = Util.New("Frame", {Name = "Health", BackgroundColor3 = Color3.fromRGB(10,12,16),
+		BorderSizePixel = 0, Active = false, ZIndex = 2}, overlay.Root)
+	overlay.HealthFill = Util.New("Frame", {Name = "Value", AnchorPoint = Vector2.new(0,1),
+		Position = UDim2.new(0,1,1,-1), BorderSizePixel = 0, Active = false, ZIndex = 3}, overlay.HealthTrack)
+	overlay.Text = ESP.NewText(overlay.Root, "Name")
+	overlay.HealthText = ESP.NewText(overlay.Root, "HealthValue")
+	-- Check the complete object set during recovery, never allocate in the render callback.
+	overlay.Objects = overlay.Root:GetDescendants()
+end
+
+function ESP.MeasureBody(record)
+	local anchor, low, high, seen = record.Root, nil, nil, {}
+	if not PlayerCache.PartBelongsToRecord(record, anchor) then record.ESPBounds = nil; return end
 	local function include(part)
 		if seen[part] or not PlayerCache.PartBelongsToRecord(record, part) then return end
 		seen[part] = true
-		local relative = anchor.CFrame:ToObjectSpace(part.CFrame)
-		local half = part.Size * .5
+		local relative, half = anchor.CFrame:ToObjectSpace(part.CFrame), part.Size * .5
 		local right, up, look = relative.RightVector, relative.UpVector, relative.LookVector
 		local extent = Vector3.new(
 			math.abs(right.X)*half.X + math.abs(up.X)*half.Y + math.abs(look.X)*half.Z,
@@ -3046,234 +3249,165 @@ function ESP.MarkerBounds(record, anchor)
 		low = low and Vector3.new(math.min(low.X,a.X), math.min(low.Y,a.Y), math.min(low.Z,a.Z)) or a
 		high = high and Vector3.new(math.max(high.X,b.X), math.max(high.Y,b.Y), math.max(high.Z,b.Z)) or b
 	end
-	for _, parts in pairs(record.BodyParts or {}) do for _, part in ipairs(parts) do include(part) end end
+	for _, parts in pairs(record.BodyParts) do for _, part in ipairs(parts) do include(part) end end
 	include(anchor)
-	local size, center = high - low, (high + low) * .5
-	return math.max(.75, math.sqrt(size.X*size.X + size.Z*size.Z) + .3),
-		math.max(.75, size.Y + .35), anchor.CFrame:VectorToWorldSpace(center)
+	local margin = Vector3.new(.1,.1,.1)
+	record.ESPBounds = {Low = low - margin, High = high + margin, Anchor = anchor}
 end
 
-function ESP.EnsureMarker(record)
-	local anchor = PlayerCache.PartBelongsToRecord(record, record.Root) and record.Root
-		or PlayerCache.PartBelongsToRecord(record, record.Head) and record.Head
-	if not anchor then
-		if record.Marker then record.Marker:Destroy() end
-		record.Marker, record.MarkerParts = nil, nil
-		return
+function ESP.ProjectBounds(record, camera)
+	local bounds = record.ESPBounds
+	if not bounds or bounds.Anchor ~= record.Root or not bounds.Anchor.Parent then return nil end
+	local viewport = camera.ViewportSize
+	if viewport.X <= 0 or viewport.Y <= 0 then return nil end
+	local transform = camera.CFrame:ToObjectSpace(bounds.Anchor.CFrame)
+	local vertices, near = {}, math.max(.05, math.abs(camera.NearPlaneZ or -.1))
+	local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+	local function project(point)
+		local projected = camera:WorldToViewportPoint(camera.CFrame:PointToWorldSpace(point))
+		if projected.X ~= projected.X or projected.Y ~= projected.Y then return end
+		minX, minY = math.min(minX, projected.X), math.min(minY, projected.Y)
+		maxX, maxY = math.max(maxX, projected.X), math.max(maxY, projected.Y)
 	end
-	local intact = record.Marker and record.Marker.Parent == S.PlayerGui
-		and record.MarkerParts and #record.MarkerParts == 8
-	if intact then
-		for _, part in ipairs(record.MarkerParts) do if part.Parent ~= record.Marker then intact = false; break end end
-	end
-	if not intact then
-		if record.Marker then pcall(function() record.Marker:Destroy() end) end
-		record.Marker = Util.New("BillboardGui", {
-			Name = "AAP_ESP_Marker_" .. record.Player.UserId, ResetOnSpawn = false,
-			Active = false, AlwaysOnTop = true, LightInfluence = 0, MaxDistance = 0,
-			ClipsDescendants = false, Adornee = anchor,
-		}, S.PlayerGui)
-		record.MarkerParts = {}
-		for _, corner in ipairs({{0,0},{1,0},{0,1},{1,1}}) do
-			for _, horizontal in ipairs({true,false}) do
-				local part = Util.New("Frame", {
-					Name = "Corner", AnchorPoint = Vector2.new(corner[1], corner[2]),
-					Position = UDim2.fromScale(corner[1], corner[2]),
-					Size = horizontal and UDim2.new(.23,0,0,1.5) or UDim2.new(0,1.5,.18,0),
-					BackgroundColor3 = ESP.ColorFor(record.Player), BorderSizePixel = 0,
-					Active = false,
-				}, record.Marker)
-				record.MarkerParts[#record.MarkerParts + 1] = part
+	for _, x in ipairs({bounds.Low.X, bounds.High.X}) do
+		for _, y in ipairs({bounds.Low.Y, bounds.High.Y}) do
+			for _, z in ipairs({bounds.Low.Z, bounds.High.Z}) do
+				local point = transform:PointToWorldSpace(Vector3.new(x,y,z))
+				vertices[#vertices+1] = point
+				if point.Z <= -near then project(point) end
 			end
 		end
 	end
-	local width, height, offset = ESP.MarkerBounds(record, anchor)
-	local marker = record.Marker
-	-- World-sized BillboardGui follows the camera natively. No per-player
-	-- render connection, screen projection loop or Highlight budget is needed.
-	marker.Adornee = anchor
-	marker.Size = UDim2.new(width,4,height,4)
-	marker.StudsOffsetWorldSpace = offset
-	marker.Enabled, marker.AlwaysOnTop = true, true
-	marker.MaxDistance, marker.LightInfluence = 0, 0
-	marker.ResetOnSpawn, marker.PlayerToHideFrom = false, nil
-	local color = ESP.SelectedAllowed(record.Player) and Theme.Accent2 or ESP.ColorFor(record.Player)
-	for _, part in ipairs(record.MarkerParts) do
-		part.Visible, part.BackgroundTransparency, part.BackgroundColor3 = true, .12, color
-	end
-end
-
-function ESP.ClearLabel(record)
-	if not record then return end
-	local label = record.Label
-	record.Label, record.LabelText = nil, nil
-	record.DisplayDistance, record.DistanceUpdatedAt, record.LastLabelText = nil, nil, nil
-	if label then pcall(function() label:Destroy() end) end
-end
-
-function ESP.Clear(record)
-	if not record then return end
-	for _, key in ipairs({"Highlight", "SelectedHighlight", "Marker", "VisualFolder"}) do
-		local object = record[key]
-		record[key] = nil
-		if object then pcall(function() object:Destroy() end) end
-	end
-	record.MarkerParts = nil
-	ESP.ClearLabel(record)
-end
-
-function ESP.EnsureNormal(record)
-	local player = record.Player
-	if not ESP.ShouldShow(player) and not ESP.SelectedAllowed(player) then
-		if record.Highlight then record.Highlight:Destroy(); record.Highlight = nil end
-		return
-	end
-	-- Owned visual objects stay outside the character, whose children may be
-	-- rebuilt by the game. Adornee always points at the current character.
-	if not record.VisualFolder or record.VisualFolder.Parent ~= S.Workspace then
-		if record.VisualFolder then pcall(function() record.VisualFolder:Destroy() end) end
-		record.VisualFolder = Util.New("Folder", {Name = "VisionX_ESP_" .. player.UserId}, S.Workspace)
-	end
-	if not record.Highlight or record.Highlight.Parent ~= record.VisualFolder then
-		if record.Highlight then pcall(function() record.Highlight:Destroy() end) end
-		record.Highlight = Util.New("Highlight", {Name = "AAP_Player"}, record.VisualFolder)
-	end
-	local selected, color = ESP.SelectedAllowed(player), ESP.ColorFor(player)
-	local highlight = record.Highlight
-	highlight.Adornee = record.Character
-	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	highlight.FillColor = selected and Theme.AccentSoft or color
-	highlight.OutlineColor = selected and Theme.Accent2 or color
-	highlight.FillTransparency = selected and .88 or .86
-	highlight.OutlineTransparency = selected and 0 or .04
-	highlight.Enabled = true
-end
-
-function ESP.EnsureSelected(record)
-	-- Selected and normal styling share one Highlight, avoiding competing
-	-- effects on the same model and wasting another renderer slot.
-	local old = record.SelectedHighlight
-	record.SelectedHighlight = nil
-	if old and old ~= record.Highlight then old:Destroy() end
-end
-
-function ESP.UpdateLabel(record)
-	if not record
-		or not record.LabelText
-		or not record.LabelText.Parent then
-
-		return
-	end
-
-	local player = record.Player
-	local anchor =
-		(
-			PlayerCache.PartBelongsToRecord(
-				record,
-				record.Root
-			)
-			and record.Root
-		)
-		or (
-			PlayerCache.PartBelongsToRecord(
-				record,
-				record.Head
-			)
-			and record.Head
-		)
-
-	local distanceText = "-- studs"
-
-	if S.Camera and anchor then
-		local targetDistance = math.floor(
-			(
-				anchor.Position
-					- S.Camera.CFrame.Position
-			).Magnitude + 0.5
-		)
-
-		local now = os.clock()
-		local elapsed = math.clamp(now - (record.DistanceUpdatedAt or now), 0, 1)
-		record.DistanceUpdatedAt = now
-		local displayDistance = record.DisplayDistance
-		local maximumStep = math.max(1, math.ceil(60 * elapsed))
-		if displayDistance == nil or math.abs(targetDistance - displayDistance) > 12 then
-			displayDistance = targetDistance
-		else
-			displayDistance += math.clamp(targetDistance - displayDistance, -maximumStep, maximumStep)
+	-- Clip the twelve box edges at the camera plane. A close/partly visible
+	-- character must not produce mirrored boxes or infinite screen coordinates.
+	for _, edge in ipairs(ESP.Edges) do
+		local a, b = vertices[edge[1]], vertices[edge[2]]
+		if (a.Z < -near) ~= (b.Z < -near) then
+			local t = (-near - a.Z) / (b.Z - a.Z)
+			project(a + (b-a)*t)
 		end
-
-		record.DisplayDistance = displayDistance
-
-		distanceText =
-			tostring(displayDistance)
-			.. " studs"
 	end
-
-	local nextText =
-		string.format(
-			"%s | %s | %s | %s",
-			player.DisplayName,
-			Util.TeamName(player),
-			Util.RelationLabel(player),
-			distanceText
-		)
-
-	if record.LastLabelText ~= nextText or record.LabelText.Text ~= nextText then
-		record.LastLabelText = nextText
-		record.LabelText.Text = nextText
-	end
+	if minX == math.huge or maxX < 0 or maxY < 0 or minX > viewport.X or minY > viewport.Y then return nil end
+	minX, maxX = math.clamp(minX,0,viewport.X), math.clamp(maxX,0,viewport.X)
+	minY, maxY = math.clamp(minY,0,viewport.Y), math.clamp(maxY,0,viewport.Y)
+	local pad = Config.ESP2DPadding
+	local x, y = math.max(1, math.floor(minX-pad)), math.max(1, math.floor(minY-pad))
+	local right, bottom = math.min(viewport.X-1,math.ceil(maxX+pad)), math.min(viewport.Y-1,math.ceil(maxY+pad))
+	if right <= x or bottom <= y then return nil end
+	return x, y, right, bottom
 end
 
-function ESP.EnsureLabel(record)
-	local player = record.Player
-	if not Config.ESPLabels or not (ESP.ShouldShow(player) or ESP.SelectedAllowed(player)) then
-		ESP.ClearLabel(record); return
+function ESP.CheckVisibility(record, camera, now)
+	if Config.ESPThroughWalls then return true end
+	if record.ESPVisibilityAt and now - record.ESPVisibilityAt < .12 then return record.ESPVisible end
+	local params = record.ESPRayParams or RaycastParams.new()
+	record.ESPRayParams = params
+	params.FilterType, params.IgnoreWater = Enum.RaycastFilterType.Exclude, true
+	local excluded = {}
+	if S.LocalPlayer.Character then excluded[#excluded+1] = S.LocalPlayer.Character end
+	params.FilterDescendantsInstances = excluded
+	local origin, visible = camera.CFrame.Position, false
+	for _, part in ipairs({record.Head or record.Root, record.Root}) do
+		if PlayerCache.PartBelongsToRecord(record, part) then
+			local delta = part.Position-origin
+			local hit = delta.Magnitude > .01 and S.Workspace:Raycast(origin,delta,params) or nil
+			if not hit or hit.Instance:IsDescendantOf(record.Character) then visible = true; break end
+		end
 	end
-	local adornee = PlayerCache.PartBelongsToRecord(record, record.Head) and record.Head
-		or PlayerCache.PartBelongsToRecord(record, record.Root) and record.Root
-	if not adornee then ESP.ClearLabel(record); return end
-	if not record.Label or record.Label.Parent ~= S.PlayerGui then
-		ESP.ClearLabel(record)
-		record.Label = Util.New("BillboardGui", {
-			Name = "AAP_Label_" .. player.UserId, AlwaysOnTop = true, ResetOnSpawn = false,
-			Size = UDim2.fromOffset(210,18), StudsOffset = Vector3.new(0,2.35,0),
-			MaxDistance = 0, LightInfluence = 0, Active = false, Adornee = adornee,
-		}, S.PlayerGui)
+	record.ESPVisibilityAt, record.ESPVisible = now, visible
+	return visible
+end
+
+function ESP.PaintLine(line, x1, y1, x2, y2, color, thickness, opacity, outline)
+	local dx, dy = x2-x1, y2-y1
+	local length = math.sqrt(dx*dx + dy*dy)
+	line.Outer.Visible = length > .1
+	if length <= .1 then return end
+	local border = outline and 1 or 0
+	line.Outer.Position = UDim2.fromOffset((x1+x2)*.5,(y1+y2)*.5)
+	line.Outer.Size = UDim2.fromOffset(length,thickness+2*border)
+	line.Outer.Rotation = math.deg(math.atan2(dy,dx))
+	line.Outer.BackgroundColor3 = outline and Color3.new(0,0,0) or color
+	line.Outer.BackgroundTransparency = 1-opacity
+	line.Inner.Visible = outline
+	line.Inner.Position, line.Inner.Size = UDim2.fromOffset(0,border), UDim2.new(1,0,1,-2*border)
+	line.Inner.BackgroundColor3, line.Inner.BackgroundTransparency = color, 1-opacity
+end
+
+function ESP.Paint2D(record, camera, now)
+	local overlay = record.Overlay
+	if not overlay then return end
+	overlay.Root.Visible = false
+	if not ESP.ShouldShow(record.Player) or record.Character ~= record.Player.Character
+		or not PlayerCache.IsAlive(record) then return end
+	local distance = ESP.Distance(record, camera)
+	if not ESP.InRange(distance) then return end
+	local x,y,right,bottom = ESP.ProjectBounds(record,camera)
+	if not x or not ESP.CheckVisibility(record,camera,now) then return end
+	local width,height,color = right-x,bottom-y,ESP.ColorFor(record.Player)
+	local opacity, thickness = Config.ESP2DOpacity/100, Config.ESP2DThickness
+	local segments
+	if Config.ESP2DStyle == "CORNERS" then
+		local w,h = width*.24,height*.20
+		segments = {{x,y,x+w,y},{x,y,x,y+h},{right-w,y,right,y},{right,y,right,y+h},
+			{x,bottom-h,x,bottom},{x,bottom,x+w,bottom},{right-w,bottom,right,bottom},{right,bottom-h,right,bottom}}
+	else
+		segments = {{x,y,right,y},{right,y,right,bottom},{right,bottom,x,bottom},{x,bottom,x,y}}
 	end
-	if not record.LabelText or record.LabelText.Parent ~= record.Label then
-		if record.LabelText then pcall(function() record.LabelText:Destroy() end) end
-		record.LastLabelText = nil
-		record.LabelText = Util.New("TextLabel", {
-			Name = "AAP_LabelText", Size = UDim2.fromScale(1,1), BackgroundTransparency = 1,
-			Text = "", TextColor3 = ESP.ColorFor(player), TextStrokeTransparency = .52,
-			TextStrokeColor3 = Color3.new(0,0,0), Font = Enum.Font.GothamMedium,
-			TextSize = 8, TextScaled = false, TextWrapped = false, Active = false,
-		}, record.Label)
+	for index,line in ipairs(overlay.Lines) do
+		local segment = Config.ESP2DBox and segments[index]
+		line.Outer.Visible = segment ~= nil and segment ~= false
+		if segment then ESP.PaintLine(line,segment[1],segment[2],segment[3],segment[4],color,thickness,opacity,Config.ESP2DOutline) end
 	end
-	record.Label.Adornee = adornee
-	record.Label.Enabled, record.Label.AlwaysOnTop, record.Label.ResetOnSpawn = true, true, false
-	record.Label.MaxDistance, record.Label.LightInfluence, record.Label.PlayerToHideFrom = 0, 0, nil
-	record.LabelText.Visible, record.LabelText.TextTransparency = true, 0
-	record.LabelText.TextColor3 = ESP.SelectedAllowed(player) and Theme.Accent2 or ESP.ColorFor(player)
-	ESP.UpdateLabel(record)
+	overlay.Fill.Visible = Config.ESP2DBox and Config.ESP2DFillOpacity > 0
+	overlay.Fill.Position, overlay.Fill.Size = UDim2.fromOffset(x,y), UDim2.fromOffset(width,height)
+	overlay.Fill.BackgroundColor3, overlay.Fill.BackgroundTransparency = color, 1-Config.ESP2DFillOpacity/100
+	local humanoid = record.Humanoid
+	local maxHealth = humanoid and Persistence.FiniteNumber(humanoid.MaxHealth,0) or 0
+	local health = humanoid and Persistence.FiniteNumber(humanoid.Health,0) or 0
+	local showHealth = Config.ESP2DHealth and maxHealth > 0
+	overlay.HealthTrack.Visible, overlay.HealthText.Visible = showHealth, showHealth and Config.ESP2DHealthText
+	if showHealth then
+		local ratio = math.clamp(health/maxHealth,0,1)
+		local hx = Config.ESP2DHealthSide == "RIGHT" and math.min(camera.ViewportSize.X-5,right+4) or math.max(0,x-9)
+		overlay.HealthTrack.Position, overlay.HealthTrack.Size = UDim2.fromOffset(hx,y), UDim2.fromOffset(5,height)
+		overlay.HealthFill.Size = UDim2.new(1,-2,ratio,-2*ratio)
+		overlay.HealthFill.BackgroundColor3 = Color3.fromRGB(235-153*ratio,69+150*ratio,83+42*ratio)
+		overlay.HealthText.Text, overlay.HealthText.TextSize = tostring(math.floor(health+.5)), Config.ESPTextSize
+		overlay.HealthText.TextColor3 = overlay.HealthFill.BackgroundColor3
+		overlay.HealthText.Position = UDim2.fromOffset(math.clamp(hx-20,0,camera.ViewportSize.X-44),math.min(camera.ViewportSize.Y-20,bottom+2))
+		overlay.HealthText.Size = UDim2.fromOffset(44,20)
+	end
+	local text = ESP.TextFor(record,distance)
+	overlay.Text.Text, overlay.Text.TextSize, overlay.Text.TextColor3 = text,Config.ESPTextSize,color
+	overlay.Text.Visible = text ~= ""
+	local textWidth = math.min(280, camera.ViewportSize.X)
+	overlay.Text.Position = UDim2.fromOffset(math.clamp((x+right-textWidth)*.5,0,camera.ViewportSize.X-textWidth),math.max(0,y-Config.ESPTextSize-8))
+	overlay.Text.Size = UDim2.fromOffset(textWidth,Config.ESPTextSize+6)
+	overlay.Tracer.Outer.Visible = Config.ESP2DTracers
+	if Config.ESP2DTracers then
+		local startY = Config.ESP2DTracerOrigin == "CENTER" and camera.ViewportSize.Y*.5 or camera.ViewportSize.Y-2
+		ESP.PaintLine(overlay.Tracer,camera.ViewportSize.X*.5,startY,(x+right)*.5,bottom,color,thickness,opacity,Config.ESP2DOutline)
+	end
+	overlay.Root.Visible = true
 end
 
 function ESP.Refresh(player)
-	if player == S.LocalPlayer then return end
 	local record = PlayerCache.Get(player)
-	if player.Parent ~= S.Players then ESP.Clear(record); return end
 	ESP.ReconcileRecord(record)
-	if not PlayerCache.IsAlive(record) or not (ESP.ShouldShow(player) or ESP.SelectedAllowed(player)) then
-		ESP.Clear(record); return
-	end
-	-- Failures are isolated by component. A label/Highlight error cannot erase
-	-- the independent body marker or prevent other players from refreshing.
+	if not ESP.ShouldShow(player) or not PlayerCache.IsAlive(record) then ESP.Clear(record); return end
+	local camera = S.Workspace.CurrentCamera
+	local distance = ESP.Distance(record,camera)
+	local enabled = ESP.InRange(distance)
 	local healthy = true
-	for _, refresh in ipairs({ESP.EnsureMarker, ESP.EnsureLabel, ESP.EnsureSelected, ESP.EnsureNormal}) do
-		local ok, problem = pcall(refresh, record)
+	local function attempt(fn,...)
+		local ok,problem = pcall(fn,...)
 		if not ok then healthy = false; ESP.RecordError(problem) end
 	end
+	attempt(ESP.EnsureNormal,record,enabled)
+	attempt(ESP.EnsureLabel,record,enabled,distance)
+	if ESP.Uses2D() then attempt(ESP.MeasureBody,record) end
+	attempt(ESP.Ensure2D,record)
 	return healthy
 end
 
@@ -3282,24 +3416,62 @@ function ESP.SafeRefresh(player)
 	local record = PlayerCache.Get(player)
 	if record.ESPRefreshing then return true end
 	record.ESPRefreshing = true
-	local ok, problem = pcall(ESP.Refresh, player)
+	local ok,problem = pcall(ESP.Refresh,player)
 	record.ESPRefreshing = false
 	if not ok then
 		ESP.RecordError(problem)
-		if player.Parent ~= S.Players or record.Character ~= player.Character or not PlayerCache.IsAlive(record) then
-			ESP.Clear(record)
-		end
+		if player.Parent ~= S.Players or record.Character ~= player.Character or not PlayerCache.IsAlive(record) then ESP.Clear(record) end
 	end
 	return ok and problem ~= false
 end
 
 function ESP.RefreshAll()
-	for _, player in ipairs(S.Players:GetPlayers()) do
-		if player ~= S.LocalPlayer then
-			ESP.SafeRefresh(player)
+	if ESP.Root then ESP.Root.Enabled = Config.ESPEnabled and ESP.Uses2D() end
+	for _,player in ipairs(S.Players:GetPlayers()) do ESP.SafeRefresh(player) end
+end
+
+function ESP.Render()
+	if not Runtime.Alive or not Config.ESPEnabled or not ESP.Uses2D() then return end
+	local camera,now = S.Workspace.CurrentCamera,os.clock()
+	if not camera then
+		if ESP.Root then ESP.Root.Enabled = false end
+		return
+	end
+	if ESP.Root then ESP.Root.Enabled = true end
+	for _,record in pairs(State.Records) do
+		if record.Overlay then
+			local ok,problem = pcall(ESP.Paint2D,record,camera,now)
+			if not ok then
+				if record.Overlay.Root then pcall(function() record.Overlay.Root.Visible = false end) end
+				ESP.RecordError(problem)
+			end
 		end
 	end
 end
+
+function ESP.Start()
+	if ESP.Started then return end
+	ESP.Started = true
+	ESP.HeartbeatConnection = Runtime.Track(S.RunService.Heartbeat:Connect(function()
+		if not Runtime.Alive then return end
+		local now = os.clock()
+		if now-ESP.LastRecovery < .2 then return end
+		ESP.LastRecovery = now
+		local ok,problem = pcall(ESP.RefreshAll)
+		if not ok then ESP.RecordError(problem) end
+	end))
+	S.RunService:UnbindFromRenderStep(ESP.RenderName)
+	S.RunService:BindToRenderStep(ESP.RenderName,Enum.RenderPriority.Last.Value+1,ESP.Render)
+end
+
+function ESP.Stop()
+	pcall(function() S.RunService:UnbindFromRenderStep(ESP.RenderName) end)
+	ESP.HeartbeatConnection = Runtime.Untrack(ESP.HeartbeatConnection)
+	ESP.Started = false
+	ESP.DestroyField(ESP,"Root")
+	ESP.DestroyField(ESP,"Folder")
+end
+
 
 --==============================================================
 -- AIM ENGINE
@@ -6249,6 +6421,7 @@ function UI.ApplyControlScale(value)
 		end
 	end
 
+	if State.UI.ESPControls then State.UI.ESPControls.Layout() end
 	if State.UI.RefreshAimLayout then State.UI.RefreshAimLayout() end
 	if State.UI.BodyControls then UI.LayoutBodyWorkspace(State.UI.BodyControls) end
 	return Config.ControlScale
@@ -14194,150 +14367,221 @@ function Pages.BuildFilters()
 	return page
 end
 
+function UI.StyleESPControl(control)
+	UI.StyleAimControl(control)
+	local height = control.Track and 108 or control.Value and 102 or 86
+	local minimum = control.Track and 100 or control.Value and 94 or 80
+	local scaled = math.max(minimum, math.floor(height * Config.ControlScale + .5))
+	control.Card.Size = UDim2.new(control.Card.Size.X.Scale,control.Card.Size.X.Offset,0,scaled)
+	for _, entry in ipairs(UI.ScalableControls) do
+		if entry.Card == control.Card then entry.BaseHeight,entry.MinimumHeight = height,minimum; break end
+	end
+	control.Title.TextWrapped = true
+	if control.Switch then
+		control.Title.Size = UDim2.new(1,-82,0,24)
+		control.Description.Position = UDim2.fromOffset(12,37)
+		control.Description.Size = UDim2.new(1,-24,0,32)
+	end
+	return scaled
+end
+
 function Pages.BuildESP()
-	local page =
-		UI.CreatePage("ESP")
-
-	local controls = {}
-
-	UI.Section(
-		page,
-		"ESP",
-		"Mostra informações dos jogadores durante a partida."
-	)
-
-	local list =
-		UI.Stack(page)
-
-	controls.Enabled =
-		UI.CreateToggle(
-			list,
-			"Ativar ESP",
-			"Mostra ou esconde todas as informações visuais dos jogadores."
-		)
-
-	local details = UI.CreateExpandableGroup(
-		page,
-		"O QUE MOSTRAR",
-		"Estas opções aparecem no jogo quando Ativar ESP estiver ligado.",
-		false
-	)
-
-	controls.Global =
-		UI.CreateToggle(
-			details,
-			"Mostrar todos",
-			"Exibe o ESP em todos os jogadores, inclusive os protegidos.",
-			{
-				Help = "Esta opção vale apenas para o ESP. Ela não permite que a mira escolha jogadores protegidos.",
-			}
-		)
-
-	controls.Enemies =
-		UI.CreateToggle(
-			details,
-			"Mostrar jogadores disponíveis",
-			"Com Mostrar todos desligado, exibe quem pode ser escolhido pela mira."
-		)
-
-	controls.Allies =
-		UI.CreateToggle(
-			details,
-			"Mostrar jogadores protegidos",
-			"Com Mostrar todos desligado, exibe quem você marcou como protegido."
-		)
-
-	controls.TeamColors =
-		UI.CreateToggle(
-			details,
-			"Usar cores das equipes",
-			"Usa a cor informada pelo jogo no lugar da cor do menu."
-		)
-
-	controls.Selected =
-		UI.CreateToggle(
-			details,
-			"Destacar jogador escolhido",
-			"Dá um destaque extra ao jogador marcado com FOCAR.",
-			{Id = "ESP:destacar_alvo_atual"}
-		)
-
-	controls.Labels =
-		UI.CreateToggle(
-			details,
-			"Mostrar nome e distância",
-			"Exibe o nome, a equipe e a distância acima do jogador."
-		)
-
-	function controls.Refresh()
-		UI.SetToggle(
-			controls.Enabled,
-			Config.ESPEnabled
-		)
-
-		UI.SetToggle(
-			controls.Global,
-			Config.GlobalESP
-		)
-
-		UI.SetToggle(
-			controls.Enemies,
-			Config.ESPEnemies
-		)
-
-		UI.SetToggle(
-			controls.Allies,
-			Config.ESPAllies
-		)
-
-		UI.SetToggle(
-			controls.TeamColors,
-			Config.ESPUseTeamColors
-		)
-
-		UI.SetToggle(
-			controls.Selected,
-			Config.SelectedESP
-		)
-
-		UI.SetToggle(
-			controls.Labels,
-			Config.ESPLabels
-		)
+	local page = UI.CreatePage("ESP")
+	page:SetAttribute("AAPHideScrollCue",true)
+	local controls = {Items = {}, Groups = {}, Panes = {}, Tabs = {}, Scroll = {}, Active = "VISUAL", Generation = 0}
+	local header = Util.New("Frame", {Name = "ESPHeader", Size = UDim2.new(1,0,0,78),
+		BackgroundTransparency = 1, LayoutOrder = -100}, page)
+	UI.AimText(header,"Visão dos jogadores",UDim2.fromOffset(2,3),UDim2.new(1,-116,0,22),12,Theme.Text,true)
+	controls.Power = Util.New("TextButton", {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-2,0,0),
+		Size = UDim2.fromOffset(105,32), BackgroundColor3 = Theme.CardActive, BorderSizePixel = 0,
+		Text = "", TextColor3 = Theme.Accent2, Font = Enum.Font.GothamBold, TextSize = 10, AutoButtonColor = false},header)
+	Util.Corner(controls.Power,10); UI.TouchFeedback(controls.Power)
+	local navigation = Util.New("Frame",{Position=UDim2.fromOffset(0,40),Size=UDim2.new(1,0,0,36),
+		BackgroundColor3=Theme.Surface2,BackgroundTransparency=.1,BorderSizePixel=0},header)
+	Util.Corner(navigation,10)
+	for index,data in ipairs({{"VISUAL","Visual"},{"2D","ESP 2D"},{"FILTERS","Filtros"}}) do
+		local key = data[1]
+		local button = Util.New("TextButton",{Position=UDim2.new((index-1)/3,2,0,2),Size=UDim2.new(1/3,-4,1,-4),
+			BackgroundColor3=Theme.CardActive,BorderSizePixel=0,Text=data[2],TextColor3=Theme.Sub,
+			Font=Enum.Font.GothamMedium,TextSize=10,AutoButtonColor=false},navigation)
+		Util.Corner(button,8); UI.TouchFeedback(button); controls.Tabs[key]=button
+		button.Activated:Connect(function() controls.Show(key) end)
+		local pane = Util.New("Frame",{Name="ESP_"..key,Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,
+			BackgroundTransparency=1,Visible=false,LayoutOrder=10},page)
+		Util.New("UIListLayout",{Padding=UDim.new(0,12),SortOrder=Enum.SortOrder.LayoutOrder},pane)
+		controls.Panes[key]=pane
 	end
-
-	local mapping = {
-		{controls.Enabled, "ESPEnabled"},
-		{controls.Global, "GlobalESP"},
-		{controls.Enemies, "ESPEnemies"},
-		{controls.Allies, "ESPAllies"},
-		{controls.TeamColors, "ESPUseTeamColors"},
-		{controls.Selected, "SelectedESP"},
-		{controls.Labels, "ESPLabels"},
-	}
-
-	for _, item in ipairs(mapping) do
-		local control = item[1]
-		local key = item[2]
-
-		control.Card.MouseButton1Click:
-			Connect(function()
-				Config[key] =
-					not Config[key]
-
-				controls.Refresh()
-				if State.UI.RefreshAimControls then
-					State.UI.RefreshAimControls()
-				end
-				ESP.RefreshAll()
+	local function group(pane,title)
+		local grid,shell=UI.CreateAimSection(controls.Panes[pane],title,nil,#controls.Groups+1)
+		local data={Grid=grid,Shell=shell,Items={}}
+		controls.Groups[#controls.Groups+1]=data
+		return data
+	end
+	local function changed()
+		for _,record in pairs(State.Records) do record.ESPVisibilityAt=nil end
+		ESP.RefreshAll()
+		controls.Refresh()
+		if State.UI.RefreshAimControls then State.UI.RefreshAimControls() end
+	end
+	local function add(section,key,title,description,kind,extra,dependency)
+		local options={Id="ESP:"..key,Organizable=false,Description=description}
+		local control
+		if kind=="SLIDER" then
+			control=UI.CreateSlider(section.Grid,title,extra[1],extra[2],Config[key],extra[3],function(value)
+				Config[key]=value; changed()
+			end,options)
+		elseif kind=="CHOICE" then
+			control=UI.CreateCycle(section.Grid,title,description,options)
+			UI.BindChoiceMenu(control,title,extra,function() return Config[key] end,function(value)
+				Config[key]=value; changed()
 			end)
+		else
+			control=UI.CreateToggle(section.Grid,title,description,options)
+			control.Card.Activated:Connect(function()
+				if not Runtime.Alive or control.Available==false or State.UI.LayoutEditMode then return end
+				Config[key]=not Config[key]; changed()
+			end)
+		end
+		control.OriginalDescription=description
+		local item={Key=key,Control=control,Kind=kind,Choices=extra,Dependency=dependency}
+		controls.Items[#controls.Items+1]=item; section.Items[#section.Items+1]=item
+		controls[key]=control
+		UI.StyleESPControl(control)
+		return control
 	end
-
-	State.UI.RefreshESPControls = controls.Refresh
-	controls.Refresh()
-
+	local function normal() return ESP.UsesNormal(),"Escolha Normal ou Ambos em Tipo de ESP." end
+	local function twoD() return ESP.Uses2D(),"Escolha 2D ou Ambos na seção Visual." end
+	local function box() return ESP.Uses2D() and Config.ESP2DBox,"Ative a caixa no modo 2D." end
+	local function info() return Config.ESPLabels,"Ative Mostrar informações." end
+	local function health() return ESP.Uses2D() and Config.ESP2DHealth,"Ative a barra de vida no modo 2D." end
+	local appearance=group("VISUAL","Aparência")
+	add(appearance,"ESPRenderMode","Tipo de ESP","Escolha como os jogadores aparecem.","CHOICE",{
+		{Value="NORMAL",Label="Normal",Description="Contorno no corpo do personagem."},
+		{Value="2D",Label="2D",Description="Caixa na tela, com vida e informações."},
+		{Value="BOTH",Label="Ambos",Description="Combina o contorno com o ESP 2D."},
+	})
+	add(appearance,"ESPThroughWalls","Através de paredes","Mostra o ESP mesmo com obstáculos na frente.")
+	local contour=group("VISUAL","Contorno normal")
+	add(contour,"ESPFillOpacity","Preenchimento","0% deixa só a borda. Aumente para colorir o corpo.","SLIDER",{0,100,"%"},normal)
+	add(contour,"ESPOutlineOpacity","Intensidade da borda","Aumente para deixar o contorno mais visível.","SLIDER",{0,100,"%"},normal)
+	local colors=group("VISUAL","Cores")
+	add(colors,"ESPColorPreset","Cor do ESP","Define a cor dos contornos e das caixas.","CHOICE",{
+		{Value="THEME",Label="Cor do menu"},{Value="RED",Label="Vermelho"},{Value="WHITE",Label="Branco"},
+		{Value="CYAN",Label="Azul claro"},{Value="GREEN",Label="Verde"},{Value="PURPLE",Label="Roxo"},{Value="YELLOW",Label="Amarelo"},
+	},function() return not Config.ESPUseTeamColors,"Desative Cores das equipes para escolher uma cor." end)
+	add(colors,"ESPUseTeamColors","Cores das equipes","Usa a cor de cada equipe informada pelo jogo.")
+	local labels=group("VISUAL","Informações")
+	add(labels,"ESPLabels","Mostrar informações","Exibe os dados escolhidos acima do jogador.")
+	add(labels,"ESPTextSize","Tamanho do texto","Aumente para ler melhor na tela do celular.","SLIDER",{9,20," px"},info)
+	local details=group("VISUAL","Detalhes do texto")
+	add(details,"ESPLabelNames","Nome do jogador","Mostra quem é o jogador.",nil,nil,info)
+	add(details,"ESPLabelDistance","Distância","Mostra a distância da câmera até o jogador.",nil,nil,info)
+	add(details,"ESPNameMode","Nome exibido","Apelido do jogo ou nome único da conta.","CHOICE",{
+		{Value="DISPLAY",Label="Apelido"},{Value="USERNAME",Label="@usuário"},
+	},function() return Config.ESPLabels and Config.ESPLabelNames,"Ative as informações e o nome do jogador." end)
+	add(details,"ESPLabelTeam","Nome da equipe","Inclui a equipe no texto do jogador.",nil,nil,info)
+	local boxes=group("2D","Caixa do jogador")
+	add(boxes,"ESP2DBox","Mostrar caixa","Enquadra o corpo do jogador na tela.",nil,nil,twoD)
+	add(boxes,"ESP2DStyle","Estilo da caixa","Borda inteira ou apenas os cantos.","CHOICE",{
+		{Value="FULL",Label="Completa"},{Value="CORNERS",Label="Cantos"},
+	},box)
+	add(boxes,"ESP2DThickness","Espessura das linhas","Aumente para destacar a caixa e as linhas.","SLIDER",{1,4," px"},twoD)
+	add(boxes,"ESP2DOutline","Borda escura","Melhora o contraste em cenários claros.",nil,nil,twoD)
+	local fill=group("2D","Acabamento")
+	add(fill,"ESP2DOpacity","Intensidade das linhas","Baixo fica discreto. Alto fica mais visível.","SLIDER",{10,100,"%"},twoD)
+	add(fill,"ESP2DFillOpacity","Fundo da caixa","0% deixa transparente. Aumente para preencher.","SLIDER",{0,60,"%"},box)
+	add(fill,"ESP2DPadding","Folga da caixa","Aumente para afastar a borda do corpo.","SLIDER",{0,12," px"},box)
+	local life=group("2D","Vida")
+	add(life,"ESP2DHealth","Barra de vida","Acompanha a vida. Some se o jogo não informar.",nil,nil,twoD)
+	add(life,"ESP2DHealthText","Valor da vida","Mostra a quantidade de vida junto da barra.",nil,nil,health)
+	add(life,"ESP2DHealthSide","Lado da barra","Escolha de que lado a vida aparece.","CHOICE",{
+		{Value="LEFT",Label="Esquerda"},{Value="RIGHT",Label="Direita"},
+	},health)
+	local lines=group("2D","Linhas de localização")
+	add(lines,"ESP2DTracers","Linha até o jogador","Liga um ponto da tela até a caixa do jogador.",nil,nil,twoD)
+	add(lines,"ESP2DTracerOrigin","Início da linha","Escolha de onde a linha sai.","CHOICE",{
+		{Value="BOTTOM",Label="Base da tela"},{Value="CENTER",Label="Centro da tela"},
+	},function() return ESP.Uses2D() and Config.ESP2DTracers,"Ative Linha até o jogador no modo 2D." end)
+	local filters=group("FILTERS","Quem aparece")
+	add(filters,"GlobalESP","Mostrar todos","Inclui jogadores disponíveis e protegidos.")
+	local function filtered() return not Config.GlobalESP,"Desative Mostrar todos para usar este filtro." end
+	add(filters,"ESPEnemies","Jogadores disponíveis","Mostra quem você não marcou como protegido.",nil,nil,filtered)
+	add(filters,"ESPAllies","Jogadores protegidos","Inclui quem foi marcado como protegido.",nil,nil,filtered)
+	add(filters,"SelectedESP","Jogador escolhido","Inclui e destaca quem você marcou com FOCAR.")
+	local range=group("FILTERS","Distância de exibição")
+	add(range,"ESPMaxDistance","Distância máxima","0 = sem limite. Aumente para mostrar mais longe.","SLIDER",{0,20000," studs"})
+	function controls.Layout()
+		local columns=page.AbsoluteSize.X-14>=460 and 2 or 1
+		for _,section in ipairs(controls.Groups) do
+			local y=0
+			for index=1,#section.Items,columns do
+				local height=0
+				for col=0,columns-1 do
+					local item=section.Items[index+col]
+					if item then height=math.max(height,UI.StyleESPControl(item.Control)) end
+				end
+				for col=0,columns-1 do
+					local item=section.Items[index+col]
+					if item then
+						local wide=columns==1 or index==#section.Items
+						item.Control.Card.Position=UDim2.new(wide and 0 or col/columns,col==0 and 0 or 5,0,y)
+						item.Control.Card.Size=UDim2.new(wide and 1 or 1/columns,wide and 0 or -5,0,height)
+					end
+				end
+				y+=height+10
+			end
+			section.Grid.Size=UDim2.new(1,0,0,math.max(0,y-10))
+		end
+	end
+	function controls.Refresh()
+		if not Runtime.Alive or not page.Parent then return end
+		controls.Power.Text=Config.ESPEnabled and "ESP ativado" or "Ativar ESP"
+		controls.Power.BackgroundColor3=Config.ESPEnabled and Theme.CardActive or Theme.Surface3
+		for _,item in ipairs(controls.Items) do
+			local control=item.Control
+			if item.Kind=="SLIDER" then control:SetValue(Config[item.Key],false)
+			elseif item.Kind=="CHOICE" then
+				for _,choice in ipairs(item.Choices) do if choice.Value==Config[item.Key] then control.Value.Text=choice.Label; break end end
+			else UI.SetToggle(control,Config[item.Key]) end
+			local available,note=true,nil
+			if item.Dependency then available,note=item.Dependency() end
+			UI.SetControlAvailable(control,available,note)
+		end
+		controls.Layout()
+	end
+	function controls.Show(key)
+		if not controls.Panes[key] or not Runtime.Alive then return end
+		UI.CloseChoiceMenu()
+		controls.Scroll[controls.Active]=page.CanvasPosition.Y
+		local previous=controls.Active
+		controls.Active=key; controls.Generation+=1
+		local generation=controls.Generation
+		for tab,pane in pairs(controls.Panes) do
+			pane.Visible=tab==key
+			Util.Tween(controls.Tabs[tab],{BackgroundTransparency=tab==key and .05 or 1,
+				TextColor3=tab==key and Theme.Accent2 or Theme.Sub},.16)
+		end
+		controls.Refresh()
+		if previous~=key and page.Visible then UI.RevealPage(page,1) end
+		task.defer(function()
+			S.RunService.Heartbeat:Wait()
+			if Runtime.Alive and page.Parent and generation==controls.Generation then
+				page.CanvasPosition=Vector2.new(0,controls.Scroll[key] or 0)
+			end
+		end)
+	end
+	controls.Power.Activated:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
+		Config.ESPEnabled=not Config.ESPEnabled; changed()
+	end)
+	page:GetPropertyChangedSignal("AbsoluteSize"):Connect(controls.Layout)
+	page:GetPropertyChangedSignal("Visible"):Connect(function() if page.Visible then controls.Refresh() end end)
+	State.UI.ESPControls=controls
+	State.UI.RefreshESPControls=controls.Refresh
+	controls.Show("VISUAL")
 	return page
 end
+
 
 function UI.TogglePlayerFocus(player)
 	if State.UI.LayoutEditMode or not player or player.Parent ~= S.Players then return false end
@@ -16820,33 +17064,7 @@ local function StartLoops()
 		end
 	end)
 
-	task.spawn(function()
-		local nextLabelUpdate, nextESPRecovery = 0, 0
-		while Runtime.Alive and State.UI.Root and State.UI.Root.Parent do
-			local iterationOk, iterationError = pcall(function()
-				S.Camera = S.Workspace.CurrentCamera
-				local now = os.clock()
-				if now >= nextESPRecovery then
-					nextESPRecovery = now + math.clamp(Persistence.FiniteNumber(Config.ESPRecoveryInterval, .25), .1, .25)
-					-- Cache repair runs inside SafeRefresh: one bad character must
-					-- never abort the rest of the player snapshot.
-					ESP.RefreshAll()
-				end
-				if now >= nextLabelUpdate and Config.ESPEnabled and Config.ESPLabels and S.Camera then
-					nextLabelUpdate = now + math.max(Persistence.FiniteNumber(Config.LabelUpdateInterval, 1/60), 1/60)
-					for player, record in pairs(State.Records) do
-						if player.Parent == S.Players and record.LabelText then
-							local ok, problem = pcall(ESP.UpdateLabel, record)
-							if not ok then ESP.RecordError(problem) end
-						end
-					end
-				end
-			end)
-			if not iterationOk then ESP.RecordError(iterationError) end
-			task.wait(1/60)
-		end
-	end)
-
+	ESP.Start()
 end
 
 local function StartRender()
@@ -17216,6 +17434,7 @@ function Runtime.Cleanup()
 
 	Runtime.Cleaned = true
 	Runtime.Alive = false
+	ESP.Stop()
 	Loading.Destroy()
 	if UI.ActiveNumericSlider then UI.ActiveNumericSlider:FinishEditing(false) end
 	UI.CloseHelpDialog()
@@ -17400,7 +17619,7 @@ local function InitializeVisionX()
 		if not Runtime.Alive or not State.UI.Root or not State.UI.Root.Parent then return end
 		State.UI.Root.Enabled = true
 		UI.SetWindowVisible(State.UI.Main, true)
-		print("[VisionX V35.0.4 - ESP] carregado")
+		print("[VisionX V35.1.0 - ESP] carregado")
 	end)
 end
 
