@@ -1,4 +1,4 @@
--- V35.1.1 — progresso por 17 tarefas reais; abertura independente da animação.
+-- V35.1.2 — formatos do menu distintos no celular e ao redimensionar a janela.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -35,30 +35,36 @@ local CONTROL_SCALE_MAX = 1.12
 local MENU_LAYOUT_PRESETS = {
 	BALANCED = {
 		Label = "EQUILIBRADO",
-		Description = "Divide o espaço entre menu, estado e jogadores.",
+		Description = "Estado ao lado do menu. Em janelas largas, mostra também os jogadores.",
 		Left = 0.18,
 		Center = 0.64,
 		Right = 0.18,
+		MinLeft = 144, MaxLeft = 200,
+		MinRight = 156, MaxRight = 240,
 	},
 	FOCUS = {
 		Label = "MENU MAIOR",
-		Description = "Dá mais espaço para as opções e esconde a lista lateral.",
-		Left = 0.20,
-		Center = 0.80,
+		Description = "Encolhe o painel de estado e esconde a lista lateral para ampliar as opções.",
+		Left = 0.14,
+		Center = 0.86,
 		Right = 0,
+		MinLeft = 112, MaxLeft = 144,
 	},
 	TARGETS = {
 		Label = "JOGADORES MAIOR",
-		Description = "Aumenta a lista lateral de jogadores.",
+		Description = "Amplia a lista lateral. Em janelas menores, esconde o painel de estado.",
 		Left = 0.16,
-		Center = 0.60,
-		Right = 0.24,
+		Center = 0.56,
+		Right = 0.28,
+		MinLeft = 128, MaxLeft = 184,
+		MinRight = 176, MaxRight = 320,
+		PreferRight = true,
 	},
 	CLEAN = {
 		Label = "SÓ O MENU",
-		Description = "Mostra apenas o menu principal e a barra de estado.",
-		Left = 0.14,
-		Center = 0.86,
+		Description = "Esconde os painéis laterais e usa toda a área para as opções.",
+		Left = 0,
+		Center = 1,
 		Right = 0,
 	},
 }
@@ -9003,64 +9009,65 @@ local function BuildVisionRootUI()
 		ZIndex = 2,
 	}, root)
 
+	-- Keep the selected format distinct when a phone cannot fit both sidebars.
+	-- Widths use the inner surface, so resizing cannot reuse the previous size.
+	local function resolveMenuColumns(styleName, surfaceWidth)
+		local preset = MENU_LAYOUT_PRESETS[styleName] or MENU_LAYOUT_PRESETS.BALANCED
+		local usableWidth = math.max(math.floor(surfaceWidth + 0.5) - 10, 1)
+		local minimumCenter = math.min(340, math.floor(usableWidth * 0.60))
+		local leftWidth = math.floor(math.clamp(
+			surfaceWidth * preset.Left, preset.MinLeft or 0, preset.MaxLeft or 0
+		) + 0.5)
+		local rightWidth = math.floor(math.clamp(
+			surfaceWidth * preset.Right, preset.MinRight or 0, preset.MaxRight or 0
+		) + 0.5)
+
+		if leftWidth > 0 and rightWidth > 0
+			and usableWidth - leftWidth - rightWidth - 12 < minimumCenter then
+			if preset.PreferRight then
+				leftWidth = 0
+			else
+				rightWidth = 0
+			end
+		end
+
+		-- Leave room for the page even in portrait or a manually resized window.
+		local railBudget = math.max(usableWidth - minimumCenter - 6, 0)
+		if rightWidth == 0 then
+			local budgetRatio = styleName == "FOCUS" and 0.80 or 1
+			leftWidth = math.min(leftWidth, math.floor(railBudget * budgetRatio))
+		elseif leftWidth == 0 then
+			rightWidth = math.min(rightWidth, railBudget)
+		end
+
+		local leftSpace = leftWidth > 0 and leftWidth + 6 or 0
+		local rightSpace = rightWidth > 0 and rightWidth + 6 or 0
+		return leftWidth, rightWidth, leftSpace, rightSpace
+	end
+
 	State.UI.UpdateResponsiveLayout = function()
-		if not main.Parent then
-			return
-		end
+		if not main.Parent or not innerSurface.Parent then return end
+		local surfaceWidth = innerSurface.AbsoluteSize.X
+		if surfaceWidth <= 0 then return end
+		local leftWidth, rightWidth, leftSpace, rightSpace =
+			resolveMenuColumns(Config.MenuLayoutStyle, surfaceWidth)
 
-		local preset = MENU_LAYOUT_PRESETS[Config.MenuLayoutStyle]
-			or MENU_LAYOUT_PRESETS.BALANCED
-		local narrow = main.AbsoluteSize.X > 0
-			and main.AbsoluteSize.X < 720
-		local leftWidth = preset.Left
-		local rightWidth = preset.Right
-
-		if narrow and leftWidth > 0 then
-			rightWidth = 0
-			leftWidth = math.clamp(leftWidth, 0.20, 0.23)
-		end
-
-		local centerWidth = math.max(1 - leftWidth - rightWidth, 0.48)
-		local hasLeft = leftWidth > 0.01
-		local hasRight = rightWidth > 0.01
-		State.UI.LeftRail.Visible = hasLeft
-		State.UI.RightRail.Visible = hasRight
-
-		if hasLeft then
+		State.UI.LeftRail.Visible = leftWidth > 0
+		State.UI.RightRail.Visible = rightWidth > 0
+		if leftWidth > 0 then
 			State.UI.LeftRail.Position = UDim2.fromOffset(5, bodyTop)
 			State.UI.LeftRail.Size = UDim2.new(
-				leftWidth,
-				-7,
-				1,
-				-(bodyTop + bodyBottom)
+				0, leftWidth, 1, -(bodyTop + bodyBottom)
 			)
 		end
-
-		State.UI.Content.Position = UDim2.new(
-			leftWidth,
-			hasLeft and 3 or 5,
-			0,
-			bodyTop
-		)
+		State.UI.Content.Position = UDim2.fromOffset(5 + leftSpace, bodyTop)
 		State.UI.Content.Size = UDim2.new(
-			centerWidth,
-			hasRight and -6 or -8,
-			1,
-			-(bodyTop + bodyBottom)
+			1, -(10 + leftSpace + rightSpace), 1, -(bodyTop + bodyBottom)
 		)
-
-		if hasRight then
-			State.UI.RightRail.Position = UDim2.new(
-				leftWidth + centerWidth,
-				2,
-				0,
-				bodyTop
-			)
+		if rightWidth > 0 then
+			State.UI.RightRail.Position = UDim2.new(1, -(5 + rightWidth), 0, bodyTop)
 			State.UI.RightRail.Size = UDim2.new(
-				rightWidth,
-				-7,
-				1,
-				-(bodyTop + bodyBottom)
+				0, rightWidth, 1, -(bodyTop + bodyBottom)
 			)
 		end
 	end
@@ -9074,7 +9081,7 @@ local function BuildVisionRootUI()
 	end
 
 	Runtime.Track(
-		main:GetPropertyChangedSignal("AbsoluteSize"):
+		innerSurface:GetPropertyChangedSignal("AbsoluteSize"):
 		Connect(State.UI.UpdateResponsiveLayout)
 	)
 	task.defer(State.UI.UpdateResponsiveLayout)
@@ -17655,7 +17662,7 @@ local function InitializeVisionX()
 		end)
 	end)
 	Loading.Finish()
-	print(string.format("[VisionX V35.1.1] Menu iniciado: %d tarefas concluídas em %.2f s.",
+	print(string.format("[VisionX V35.1.2] Menu iniciado: %d tarefas concluídas em %.2f s.",
 		State.InitializationReport.Tasks,State.InitializationReport.Seconds))
 end
 
