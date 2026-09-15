@@ -1,17 +1,15 @@
 name: Apply VisionX Wi-Fi icon update
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/_visionx_wifi_patch_20260915.yml'
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event.issue.title == 'APPLY_VISIONX_WIFI_PATCH_20260915'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -79,7 +77,6 @@ jobs:
                   end
 
                   if index == 0 then
-                      -- Slightly larger central dot to match the clean system Wi-Fi silhouette.
                       dot(centerX, centerY, 4.8)
                   else
                       local radius = radii[index]
@@ -89,8 +86,6 @@ jobs:
                       local endpointY = centerY - rise
                       local padding = 5
 
-                      -- The clip ends exactly at the arc tips. Extra room exists only
-                      -- above/at the sides, preventing the outer wave from being cut.
                       local clip = Util.New("Frame", {
                           Name = "CircularArcClip",
                           Position = UDim2.fromOffset(centerX - radius - padding, centerY - radius - padding),
@@ -114,12 +109,10 @@ jobs:
                       end)
                       ink(stroke, "Color", "Transparency")
 
-                      -- Circular endpoint caps keep every arc visually smooth and symmetric.
                       dot(centerX - extent, endpointY, weight)
                       dot(centerX + extent, endpointY, weight)
                   end
               end
-          end
 '''
 
           text = text[:start] + new_ping_branch + text[end:]
@@ -167,7 +160,6 @@ jobs:
                       end
 
                       if active then
-                          -- A stronger connection grows naturally from the dot upward.
                           layer.Holder.Position = layer.HiddenPosition
                           for _, entry in ipairs(layer.Ink) do
                               entry[1][entry[2]] = inactiveAlpha
@@ -177,7 +169,6 @@ jobs:
                               Util.Tween(entry[1], {[entry[2]] = activeAlpha}, tweenTime, Enum.EasingStyle.Quad)
                           end
                       else
-                          -- A weaker connection collapses from the highest active wave downward.
                           Util.Tween(layer.Holder, {Position = layer.HiddenPosition}, tweenTime, Enum.EasingStyle.Quad)
                           for _, entry in ipairs(layer.Ink) do
                               Util.Tween(entry[1], {[entry[2]] = inactiveAlpha}, tweenTime, Enum.EasingStyle.Quad)
@@ -196,7 +187,6 @@ jobs:
                   if instant then
                       stable(layer, newActive)
                   elseif oldActive == newActive then
-                      -- Reconcile any interrupted tween without replaying an animation.
                       stable(layer, newActive)
                   elseif newActive then
                       local rank
@@ -234,5 +224,5 @@ jobs:
             echo "No changes were necessary."
             exit 0
           fi
-          git commit -m "feat: clean animated Wi-Fi ping icon"
+          git commit -m "feat: clean animated Wi-Fi ping icon (V35.3.5)"
           git push origin HEAD:main
