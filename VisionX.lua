@@ -1,5 +1,5 @@
--- V35.3.7 — Wi-Fi refinado: ondas mais finas, separadas e proporcionais.
--- Bootstrap do build completo V35.3.4 com o patch visual V35.3.7 aplicado em memória.
+-- V35.3.8 — Wi-Fi crisp: geometria em pixels inteiros, sem escala fracionada e com curvas mais limpas.
+-- Bootstrap do build completo V35.3.4 com o patch visual V35.3.8 aplicado em memória.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
 
@@ -16,9 +16,15 @@ local function replaceBetween(text, startMarker, endMarker, replacement, searchS
     return string.sub(text, 1, startAt - 1) .. replacement .. string.sub(text, endAt)
 end
 
+local function replaceExact(text, oldText, newText, searchStart, errorName)
+    local at = string.find(text, oldText, searchStart or 1, true)
+    assert(at, "VisionX: patch não encontrado: " .. tostring(errorName or oldText))
+    return string.sub(text, 1, at - 1) .. newText .. string.sub(text, at + #oldText)
+end
+
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.7 — Wi-Fi refinado: ondas mais finas, separadas e proporcionais; demais funções preservadas.",
+    "-- V35.3.8 — Wi-Fi crisp com pixels inteiros e sem escala fracionada; demais funções preservadas.",
     1
 )
 
@@ -27,25 +33,45 @@ local sharpStart = assert(
     "VisionX: CreateSharpNavigationIcon não encontrado."
 )
 
+-- O blur principal vinha do ícone de 32 px inteiro ser rasterizado por um UIScale fracionário.
+-- Guardamos o UIScale para desativá-lo somente no PING e desenhar já no tamanho final em pixels.
+local oldScaleLine = '    Util.New("UIScale", {Scale = size / 32}, glyph.Box)\n'
+local newScaleLine = '    local navigationScale = Util.New("UIScale", {Scale = size / 32}, glyph.Box)\n'
+source = replaceExact(source, oldScaleLine, newScaleLine, sharpStart, "UIScale do ícone de navegação")
+
 local pingStartMarker = '    if kind == "PING" then\n'
 local pingEndMarker = '    else\n        if kind == "JOGADORES" or kind == "ESP" then'
 
 local newPingBranch = [=[    if kind == "PING" then
-        -- Wi-Fi 100% nativo e vetorial: sem sprite borrado e com espaçamento limpo.
+        -- PING é desenhado diretamente no tamanho final para não sofrer reamostragem.
+        navigationScale.Scale = 1
+
+        local iconSize = math.max(16, math.floor((tonumber(size) or 32) + .5))
+        glyph.Box.Size = UDim2.fromOffset(iconSize, iconSize)
         glyph.PingLayers = {}
 
-        -- Geometria refinada para evitar o efeito "grudado" entre as ondas.
-        local centerX, centerY = 16, 26.3
-        local pointY = 29.0
-        local radii = {6.2, 11.8, 17.4}
-        local widths = {2.15, 2.35, 2.55}
-        local extentRatio = .80
+        local function px(value)
+            return math.floor(value + .5)
+        end
+
+        -- Todas as medidas abaixo terminam em pixels inteiros.
+        local centerX = px(iconSize * .50)
+        local arcCenterY = px(iconSize * .75)
+        local pointY = px(iconSize * .91)
+        local radii = {
+            math.max(4, px(iconSize * .19)),
+            math.max(7, px(iconSize * .35)),
+            math.max(10, px(iconSize * .50)),
+        }
+        local thickness = math.max(2, px(iconSize * .065))
+        local pointSize = math.max(3, thickness + 1)
+        local extentRatio = .78
 
         for index = 0, 3 do
             local holder = Util.New("Frame", {
                 Name = ("SignalLayer_%d"):format(index),
                 Position = UDim2.fromOffset(0, 2),
-                Size = UDim2.fromScale(1, 1),
+                Size = UDim2.fromOffset(iconSize, iconSize),
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
             }, glyph.Box)
@@ -66,34 +92,40 @@ local newPingBranch = [=[    if kind == "PING" then
             end
 
             local function dot(x, y, diameter)
+                diameter = math.max(2, px(diameter))
                 local object = Util.New("Frame", {
                     AnchorPoint = Vector2.new(.5, .5),
-                    Position = UDim2.fromOffset(x, y),
+                    Position = UDim2.fromOffset(px(x), px(y)),
                     Size = UDim2.fromOffset(diameter, diameter),
                     BackgroundColor3 = Theme.Sub,
                     BorderSizePixel = 0,
                 }, holder)
-                Util.New("UICorner", {CornerRadius = UDim.new(.5, 0)}, object)
+                Util.New("UICorner", {CornerRadius = UDim.new(1, 0)}, object)
                 ink(object, "BackgroundColor3", "BackgroundTransparency")
                 return object
             end
 
             if index == 0 then
-                -- Ponto menor e mais afastado da primeira onda.
-                dot(centerX, pointY, 3.6)
+                -- Ponto central pequeno, perfeitamente alinhado e separado da primeira onda.
+                dot(centerX, pointY, pointSize)
             else
                 local radius = radii[index]
-                local weight = widths[index]
-                local extent = radius * extentRatio
-                local rise = math.sqrt(radius * radius - extent * extent)
-                local endpointY = centerY - rise
-                local padding = 5
+                local weight = thickness
+                local extent = px(radius * extentRatio)
+                local rise = px(math.sqrt(math.max(0, radius * radius - extent * extent)))
+                local endpointY = arcCenterY - rise
+                local padding = math.max(4, thickness + 2)
 
-                -- Clip com folga para preservar a curvatura e não cortar o arco externo.
                 local clip = Util.New("Frame", {
                     Name = "CircularArcClip",
-                    Position = UDim2.fromOffset(centerX - radius - padding, centerY - radius - padding),
-                    Size = UDim2.fromOffset(radius * 2 + padding * 2, radius - rise + padding),
+                    Position = UDim2.fromOffset(
+                        centerX - radius - padding,
+                        arcCenterY - radius - padding
+                    ),
+                    Size = UDim2.fromOffset(
+                        radius * 2 + padding * 2,
+                        radius - rise + padding + thickness
+                    ),
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                     ClipsDescendants = true,
@@ -106,14 +138,23 @@ local newPingBranch = [=[    if kind == "PING" then
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                 }, clip)
-                Util.New("UICorner", {CornerRadius = UDim.new(.5, 0)}, ring)
+
+                Util.New("UICorner", {CornerRadius = UDim.new(1, 0)}, ring)
                 local stroke = Util.Stroke(ring, Theme.Sub, .86, weight)
+
+                pcall(function()
+                    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                end)
+                pcall(function()
+                    stroke.LineJoinMode = Enum.LineJoinMode.Round
+                end)
                 pcall(function()
                     stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center
                 end)
+
                 ink(stroke, "Color", "Transparency")
 
-                -- Caps circulares mantêm as duas extremidades perfeitamente suaves.
+                -- Caps inteiros evitam pontas quadradas e mantêm ambos os lados idênticos.
                 dot(centerX - extent, endpointY, weight)
                 dot(centerX + extent, endpointY, weight)
             end
@@ -148,10 +189,10 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
     glyph.SignalGeneration = (glyph.SignalGeneration or 0) + 1
     local generation = glyph.SignalGeneration
     local oldLevel = math.clamp(previous or 0, 0, 3)
-    local activeAlpha = .03
+    local activeAlpha = .02
     local inactiveAlpha = known and .86 or .93
-    local stepDelay = .055
-    local tweenTime = .18
+    local stepDelay = .05
+    local tweenTime = .16
 
     local function stable(layer, active)
         Util.StopTween(layer.Holder)
@@ -162,7 +203,7 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
         end
     end
 
-    local function animate(layer, active, delay)
+    local function animate(layer, active, delayTime)
         local function paint()
             if not Runtime.Alive or not glyph.Box.Parent or glyph.SignalGeneration ~= generation then return end
 
@@ -172,7 +213,7 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
             end
 
             if active then
-                -- Melhorou: as ondas sobem do ponto para fora.
+                -- Melhorou: ondas entram de baixo para cima, do centro para fora.
                 layer.Holder.Position = layer.HiddenPosition
                 for _, entry in ipairs(layer.Ink) do
                     entry[1][entry[2]] = inactiveAlpha
@@ -182,7 +223,7 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
                     Util.Tween(entry[1], {[entry[2]] = activeAlpha}, tweenTime, Enum.EasingStyle.Quad)
                 end
             else
-                -- Piorou: as ondas descem/apagam de fora para dentro.
+                -- Piorou: ondas descem e apagam de fora para dentro.
                 Util.Tween(layer.Holder, {Position = layer.HiddenPosition}, tweenTime, Enum.EasingStyle.Quad)
                 for _, entry in ipairs(layer.Ink) do
                     Util.Tween(entry[1], {[entry[2]] = inactiveAlpha}, tweenTime, Enum.EasingStyle.Quad)
@@ -190,10 +231,10 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
             end
         end
 
-        if delay <= 0 then
+        if delayTime <= 0 then
             paint()
         else
-            task.delay(delay, paint)
+            task.delay(delayTime, paint)
         end
     end
 
@@ -205,7 +246,6 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
         if instant then
             stable(layer, newActive)
         elseif oldActive == newActive then
-            -- Evita piscar quando o ping oscila sem trocar de faixa.
             stable(layer, newActive)
         elseif newActive then
             local rank
@@ -232,5 +272,5 @@ source = replaceBetween(
 )
 
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.7: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.8: " .. tostring(compileError))
 return compiled()
