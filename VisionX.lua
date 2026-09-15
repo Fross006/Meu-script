@@ -1,4 +1,4 @@
--- V35.2.0 — botão compacto VisionX, arte embutida e abertura por toque sem confundir arrasto.
+-- V35.3.0 — botão compacto VisionX, arte embutida e abertura por toque sem confundir arrasto.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -35,7 +35,7 @@ local CONTROL_SCALE_MAX = 1.12
 local MENU_LAYOUT_PRESETS = {
 	BALANCED = {
 		Label = "EQUILIBRADO",
-		Description = "Estado ao lado do menu. Em janelas largas, mostra também os jogadores.",
+		Description = "Navegação lateral com nomes e ícones, como no visual principal.",
 		Left = 0.18,
 		Center = 0.64,
 		Right = 0.18,
@@ -44,7 +44,7 @@ local MENU_LAYOUT_PRESETS = {
 	},
 	FOCUS = {
 		Label = "MENU MAIOR",
-		Description = "Encolhe o painel de estado e esconde a lista lateral para ampliar as opções.",
+		Description = "Deixa a navegação mais estreita para dar mais espaço às opções.",
 		Left = 0.14,
 		Center = 0.86,
 		Right = 0,
@@ -52,7 +52,7 @@ local MENU_LAYOUT_PRESETS = {
 	},
 	TARGETS = {
 		Label = "JOGADORES MAIOR",
-		Description = "Amplia a lista lateral. Em janelas menores, esconde o painel de estado.",
+		Description = "Lista de jogadores ao lado. Em telas menores, oferece um atalho direto para a lista.",
 		Left = 0.16,
 		Center = 0.56,
 		Right = 0.28,
@@ -62,7 +62,7 @@ local MENU_LAYOUT_PRESETS = {
 	},
 	CLEAN = {
 		Label = "SÓ O MENU",
-		Description = "Esconde os painéis laterais e usa toda a área para as opções.",
+		Description = "Navegação apenas com ícones para ampliar a área das opções.",
 		Left = 0,
 		Center = 1,
 		Right = 0,
@@ -92,7 +92,7 @@ local Config = {
 	AimMode = "AUTO",
 	MobileQuickControls = true,
 	MobileQuickLocked = true,
-	UITheme = "RED",
+	UITheme = "BLUE",
 	MenuScale = 0.92,
 	MenuCustomWidth = 0,
 	MenuCustomHeight = 0,
@@ -612,36 +612,36 @@ local Config = {
 
 local Theme = {
 	-- AAA dark-glass / crimson system matched to the visual reference.
-	BG = Color3.fromRGB(5, 7, 11),
-	Glass = Color3.fromRGB(9, 11, 17),
-	GlassRaised = Color3.fromRGB(17, 19, 27),
-	Surface2 = Color3.fromRGB(16, 18, 25),
-	Surface3 = Color3.fromRGB(21, 23, 31),
+	BG = Color3.fromRGB(10, 16, 25),
+	Glass = Color3.fromRGB(13, 21, 31),
+	GlassRaised = Color3.fromRGB(26, 35, 48),
+	Surface2 = Color3.fromRGB(15, 23, 33),
+	Surface3 = Color3.fromRGB(30, 41, 58),
 
-	Card = Color3.fromRGB(14, 16, 23),
-	CardHover = Color3.fromRGB(22, 24, 33),
-	CardActive = Color3.fromRGB(47, 19, 29),
+	Card = Color3.fromRGB(23, 32, 45),
+	CardHover = Color3.fromRGB(29, 41, 58),
+	CardActive = Color3.fromRGB(20, 47, 83),
 
-	Border = Color3.fromRGB(71, 75, 89),
-	BorderSoft = Color3.fromRGB(43, 47, 59),
-	BorderInner = Color3.fromRGB(98, 102, 116),
+	Border = Color3.fromRGB(83, 103, 130),
+	BorderSoft = Color3.fromRGB(55, 69, 89),
+	BorderInner = Color3.fromRGB(66, 83, 108),
 
-	Accent = Color3.fromRGB(245, 47, 85),
-	Accent2 = Color3.fromRGB(255, 103, 124),
-	AccentHot = Color3.fromRGB(255, 35, 72),
-	AccentSoft = Color3.fromRGB(84, 20, 37),
-	AccentDeep = Color3.fromRGB(30, 9, 17),
+	Accent = Color3.fromRGB(27, 120, 255),
+	Accent2 = Color3.fromRGB(119, 177, 255),
+	AccentHot = Color3.fromRGB(20, 103, 237),
+	AccentSoft = Color3.fromRGB(23, 56, 98),
+	AccentDeep = Color3.fromRGB(10, 25, 48),
 
 	Success = Color3.fromRGB(56, 190, 118),
 	Danger = Color3.fromRGB(225, 84, 96),
 	Warning = Color3.fromRGB(221, 166, 74),
 
-	Text = Color3.fromRGB(248, 249, 252),
-	Sub = Color3.fromRGB(177, 181, 193),
-	Muted = Color3.fromRGB(105, 112, 130),
-	Dim = Color3.fromRGB(72, 79, 96),
+	Text = Color3.fromRGB(245, 248, 253),
+	Sub = Color3.fromRGB(185, 198, 219),
+	Muted = Color3.fromRGB(112, 129, 153),
+	Dim = Color3.fromRGB(88, 101, 123),
 
-	Chip = Color3.fromRGB(18, 22, 29),
+	Chip = Color3.fromRGB(37, 48, 65),
 }
 
 local ThemePresets = {
@@ -1050,7 +1050,7 @@ function Persistence.NormalizeConfig()
 		Config.PredictionMode == "MANUAL" and "MANUAL" or "AUTO"
 	Config.SmoothingCurve =
 		Config.SmoothingCurve == "LINEAR" and "LINEAR" or "DYNAMIC"
-	Config.UITheme = ThemePresets[Config.UITheme] and Config.UITheme or "RED"
+	Config.UITheme = ThemePresets[Config.UITheme] and Config.UITheme or "BLUE"
 	Config.MenuLayoutStyle =
 		MENU_LAYOUT_PRESETS[Config.MenuLayoutStyle]
 		and Config.MenuLayoutStyle
@@ -5733,8 +5733,8 @@ function UI.CleanupMotion()
 end
 
 function UI.ApplyTheme(themeName)
-	local preset = ThemePresets[themeName] or ThemePresets.RED
-	local resolvedName = ThemePresets[themeName] and themeName or "RED"
+	local preset = ThemePresets[themeName] or ThemePresets.BLUE
+	local resolvedName = ThemePresets[themeName] and themeName or "BLUE"
 
 	Config.UITheme = resolvedName
 	for _, key in ipairs(Util.ThemeColorKeys) do
@@ -5806,6 +5806,12 @@ function UI.ApplyTheme(themeName)
 		ESP.RefreshAll()
 	end
 
+	if State.UI.BrandWordmark then
+		local c = Theme.Accent
+		State.UI.BrandWordmark.Text = string.format('VISION<font color="rgb(%d,%d,%d)">X</font>',
+			math.floor(c.R * 255 + .5), math.floor(c.G * 255 + .5), math.floor(c.B * 255 + .5))
+	end
+	if State.UI.RefreshAimLayout then State.UI.RefreshAimLayout() end
 	return resolvedName
 end
 
@@ -7298,7 +7304,7 @@ function UI.SetToggle(control, enabled)
 			{
 				BackgroundColor3 =
 					enabled
-					and Theme.AccentSoft
+					and Theme.Accent
 					or Theme.Chip
 			},
 			0.16
@@ -7782,16 +7788,6 @@ function UI.Section(parent, title, subtitle)
 	Util.Corner(box, 14)
 	Util.Stroke(box, Theme.BorderSoft, 0.84, 1)
 
-	local marker = Util.New("Frame", {
-		Position = UDim2.fromOffset(8, 8),
-		Size = UDim2.new(0, 3, 1, -16),
-		BackgroundColor3 = Theme.Accent,
-		BorderSizePixel = 0,
-	}, box)
-
-	Util.Corner(marker, 999)
-	Util.Stroke(marker, Theme.Accent2, 0.50, 2)
-
 	Util.New("TextLabel", {
 		Position = UDim2.fromOffset(18, 6),
 		Size = UDim2.new(1, -28, 0, 20),
@@ -7859,7 +7855,7 @@ function UI.CreateExpandableGroup(parent, title, subtitle, expandedByDefault)
 	}, shell)
 
 	local header = Util.New("TextButton", {
-		Size = UDim2.new(1, 0, 0, subtitle and 58 or 46),
+		Size = UDim2.new(1, 0, 0, subtitle and 58 or 36),
 		BackgroundColor3 = Theme.Surface2,
 		BackgroundTransparency = 0.12,
 		BorderSizePixel = 0,
@@ -7873,15 +7869,15 @@ function UI.CreateExpandableGroup(parent, title, subtitle, expandedByDefault)
 
 
 	Util.FitText(Util.New("TextLabel", {
-		Position = UDim2.fromOffset(20, 6),
-		Size = UDim2.new(1, -104, 0, 20),
+		Position = UDim2.fromOffset(14, 0),
+		Size = UDim2.new(1, -54, subtitle and 0 or 1, subtitle and 20 or 0),
 		BackgroundTransparency = 1,
 		Text = title,
 		TextColor3 = Theme.Text,
 		Font = Enum.Font.GothamBold,
-		TextSize = 9,
+		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left,
-	}, header), 7, 10)
+	}, header), 11, 13)
 
 	if subtitle then
 		Util.FitText(Util.New("TextLabel", {
@@ -7899,17 +7895,25 @@ function UI.CreateExpandableGroup(parent, title, subtitle, expandedByDefault)
 	local stateLabel = Util.New("TextLabel", {
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(66, 25),
+		Size = UDim2.fromOffset(28, 25),
 		BackgroundColor3 = Theme.Card,
-		BackgroundTransparency = 0.06,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Text = "ABRIR",
+		Text = "",
 		TextColor3 = Theme.Accent2,
 		Font = Enum.Font.GothamBold,
 		TextSize = 7,
 	}, header)
 	Util.Corner(stateLabel, 999)
-	Util.Stroke(stateLabel, Theme.BorderSoft, 0.58, 1)
+	local arrow = Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5),
+		Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(16, 10),
+		BackgroundTransparency = 1, BorderSizePixel = 0}, stateLabel)
+	for index, angle in ipairs({45, -45}) do
+		local segment = Util.New("Frame", {AnchorPoint = Vector2.new(.5, .5),
+			Position = UDim2.fromOffset(index == 1 and 4 or 10, 4), Size = UDim2.fromOffset(9, 2),
+			BackgroundColor3 = Theme.Text, BorderSizePixel = 0, Rotation = angle}, arrow)
+		Util.Corner(segment, 999)
+	end
 	UI.TouchFeedback(header)
 
 	local content = Util.New("Frame", {
@@ -7950,7 +7954,8 @@ function UI.CreateExpandableGroup(parent, title, subtitle, expandedByDefault)
 			and Enum.AutomaticSize.Y
 			or Enum.AutomaticSize.None
 		self.Content.Size = UDim2.new(1, 0, 0, 0)
-		self.StateLabel.Text = self.Expanded and "FECHAR" or "ABRIR"
+		self.StateLabel.Text = ""
+		Util.Tween(arrow, {Rotation = self.Expanded and 180 or 0}, .16)
 		self.StateLabel.TextColor3 = self.Expanded
 			and Theme.Text
 			or Theme.Accent2
@@ -7974,7 +7979,7 @@ end
 --==============================================================
 
 -- Main responsive three-column interface.
-local VISION_MENU_ASPECT = 1.92
+local VISION_MENU_ASPECT = 1.83
 
 function UI.BuildAimStatusPanel(panel)
 	State.UI.StatusTitle = Util.FitText(Util.New("TextLabel", {
@@ -8470,6 +8475,631 @@ local function ClearPreviousVisionUI()
 
 end
 
+function UI.GetNavigationArtwork()
+	if UI.NavigationArtworkAttempted then return UI.NavigationArtworkAsset end
+	UI.NavigationArtworkAttempted = true
+	local register = type(getcustomasset) == "function" and getcustomasset
+		or type(getsynasset) == "function" and getsynasset
+	if not register or type(writefile) ~= "function" then return nil end
+	local ok, asset = pcall(function()
+		local encoded = [[
+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
+]]
+		local alphabet, codes = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", {}
+		for index = 1, #alphabet do codes[string.byte(alphabet, index)] = index - 1 end
+		encoded = encoded:gsub("%s", "")
+		local bytes = {}
+		for index = 1, #encoded, 4 do
+			local a, b, c, d = string.byte(encoded, index, index + 3)
+			local value = codes[a] * 262144 + codes[b] * 4096 + (codes[c] or 0) * 64 + (codes[d] or 0)
+			local first, second = math.floor(value / 65536), math.floor(value / 256) % 256
+			bytes[#bytes + 1] = c == 61 and string.char(first)
+				or d == 61 and string.char(first, second) or string.char(first, second, value % 256)
+		end
+		local png, path = table.concat(bytes), "VisionX_Navigation_35_3.png"
+		local cachedOK, cached = false, nil
+		if type(readfile) == "function" then cachedOK, cached = pcall(readfile, path) end
+		if not cachedOK or cached ~= png then writefile(path, png) end
+		return register(path)
+	end)
+	if ok and type(asset) == "string" and asset ~= "" then UI.NavigationArtworkAsset = asset end
+	return UI.NavigationArtworkAsset
+end
+
+function UI.AttachNavigationArtwork(glyph, kind)
+	local positions = {MIRA = 0, CORPO = 1, JOGADORES = 2, ESP = 3, AJUSTES = 4, FPS = 5, PING = 6}
+	local index = positions[kind]
+	if index == nil then return end
+	local asset = UI.GetNavigationArtwork()
+	if not asset then return end
+	local fallback = {}
+	for _, child in ipairs(glyph.Box:GetChildren()) do
+		if child:IsA("GuiObject") then fallback[#fallback + 1] = child end
+	end
+	local image = Util.New("ImageLabel", {Name = "NavigationArtwork", Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Image = asset, ImageColor3 = Theme.Sub,
+		ImageRectOffset = Vector2.new(index * 128, 0), ImageRectSize = Vector2.new(128, 128),
+		ScaleType = Enum.ScaleType.Fit, Visible = false}, glyph.Box)
+	glyph.Image = image
+	glyph.Ink[#glyph.Ink + 1] = {image, "ImageColor3"}
+	local connection
+	local function show()
+		if not Runtime.Alive or not glyph.Box.Parent or not image.IsLoaded then return end
+		for _, child in ipairs(fallback) do child.Visible = false end
+		image.Visible = true
+		Runtime.Disconnect(connection)
+	end
+	connection = Runtime.Track(image:GetPropertyChangedSignal("IsLoaded"):Connect(show))
+	show()
+end
+
+-- V35.3: one navigation surface; all six pages remain reachable at every width.
+function UI.SidebarText(parent, text, position, size, fontSize, color, bold)
+	local label = UI.SettingsText(parent, text, position, size, fontSize, color, bold)
+	UI.SetReadableText(label, fontSize)
+	return label
+end
+
+function UI.SidebarSurface(parent, name, order)
+	local frame = Util.New("Frame", {Name = name, Size = UDim2.new(1, 0, 0, 0),
+		BackgroundColor3 = Theme.Card, BackgroundTransparency = .04,
+		BorderSizePixel = 0, LayoutOrder = order or 0}, parent)
+	Util.Corner(frame, 12)
+	Util.Stroke(frame, Theme.Border, .40, 1)
+	return frame
+end
+
+function UI.CreateNavigationIcon(parent, kind, size)
+	if kind == "ARMAS" then
+		local glyph = UI.CreateWeaponGlyph(parent, "RIFLE")
+		glyph.Box.BackgroundTransparency = 1
+		glyph.Box.Size = UDim2.fromOffset(44, 32)
+		Util.New("UIScale", {Scale = size / 32}, glyph.Box)
+		return glyph
+	end
+	local glyph, draw = UI.CreateMenuGlyph(parent, size, Theme.Card, Theme.Sub)
+	glyph.Box.Name = "NavigationIcon_" .. kind
+	glyph.Box.BackgroundTransparency = 1
+	if kind == "MIRA" then
+		draw.Outline(6, 6, 20, 20, 10)
+		draw.Outline(14, 14, 4, 4, 2)
+		draw.Line(16, 2, 16, 9); draw.Line(16, 23, 16, 30)
+		draw.Line(2, 16, 9, 16); draw.Line(23, 16, 30, 16)
+	elseif kind == "CORPO" or kind == "JOGADORES" then
+		local x = kind == "CORPO" and 16 or 12
+		draw.Outline(x - 6, 3, 12, 12, 6)
+		-- Rounded shoulders, clipped along a straight lower edge.
+		local shoulder = draw.Outline(x - 10, 17, 20, 12, 5)
+		if kind == "JOGADORES" then
+			draw.Line(23, 6, 26, 7); draw.Line(26, 7, 27, 10)
+			draw.Line(27, 10, 26, 13); draw.Line(26, 13, 24, 14)
+			draw.Line(25, 18, 29, 22); draw.Line(29, 22, 29, 28)
+			draw.Line(25, 28, 29, 28)
+		end
+	elseif kind == "ESP" then
+		local points = {{2,16},{6,10},{11,6},{16,5},{21,6},{26,10},{30,16},
+			{26,22},{21,26},{16,27},{11,26},{6,22},{2,16}}
+		for i = 2, #points do draw.Line(points[i-1][1], points[i-1][2], points[i][1], points[i][2], 1.8) end
+		draw.Outline(11, 11, 10, 10, 5)
+	elseif kind == "AJUSTES" then
+		draw.Outline(6, 6, 20, 20, 8)
+		draw.Outline(12, 12, 8, 8, 4)
+		for i = 0, 7 do
+			local a = i * math.pi / 4
+			draw.Line(16 + math.cos(a) * 11, 16 + math.sin(a) * 11,
+				16 + math.cos(a) * 14, 16 + math.sin(a) * 14, 3)
+		end
+	elseif kind == "FPS" then
+		for i = 1, 4 do draw.Fill(4 + (i - 1) * 6, 26 - i * 5, 3, i * 5, .5) end
+	elseif kind == "PING" then
+		draw.Line(3, 11, 9, 7); draw.Line(9, 7, 16, 6); draw.Line(16, 6, 23, 7); draw.Line(23, 7, 29, 11)
+		draw.Line(7, 16, 12, 13); draw.Line(12, 13, 20, 13); draw.Line(20, 13, 25, 16)
+		draw.Line(12, 21, 16, 19); draw.Line(16, 19, 20, 21); draw.Fill(15, 25, 2, 2, 1)
+	end
+	UI.AttachNavigationArtwork(glyph, kind)
+	return glyph
+end
+
+function UI.BuildSidebarBrand(parent)
+	local box = Util.New("Frame", {Name = "VisionXBrand", BackgroundTransparency = 1,
+		BorderSizePixel = 0, Size = UDim2.fromOffset(76, 86), AnchorPoint = Vector2.new(.5, 0),
+		Position = UDim2.new(.5, 0, 0, 14)}, parent)
+	local native = UI.SidebarText(box, "V", UDim2.fromOffset(6, -3), UDim2.fromOffset(64, 58), 56, Theme.Text, true)
+	native.Font = Enum.Font.GothamBlack
+	native.TextXAlignment = Enum.TextXAlignment.Center
+	local clip = Util.New("Frame", {Position = UDim2.fromOffset(16, 8), Size = UDim2.fromOffset(20, 15),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true}, box)
+	local facet = UI.SidebarText(clip, "V", UDim2.fromOffset(-10, -11), UDim2.fromOffset(64, 58), 56, Theme.Accent, true)
+	facet.Font = Enum.Font.GothamBlack; facet.TextXAlignment = Enum.TextXAlignment.Center
+	local asset = UI.GetLauncherArtwork()
+	if asset then
+		local pictures, connections = {}, {}
+		for index = 1, 2 do
+			local picture = Util.New("ImageLabel", {Name = "BrandMask" .. index,
+				Position = UDim2.fromOffset(10, 0), Size = UDim2.fromOffset(56, 54),
+				BackgroundTransparency = 1, BorderSizePixel = 0, Image = asset,
+				ImageRectOffset = Vector2.new((index + 1) * 256 + 48, 32),
+				ImageRectSize = Vector2.new(160, 156), ImageColor3 = index == 1 and Theme.Text or Theme.Accent,
+				ScaleType = Enum.ScaleType.Fit, Visible = false}, box)
+			pictures[#pictures + 1] = picture
+		end
+		local function show()
+			if not Runtime.Alive or not box.Parent then return end
+			for _, picture in ipairs(pictures) do if not picture.IsLoaded then return end end
+			native.Visible = false; clip.Visible = false
+			for _, picture in ipairs(pictures) do picture.Visible = true end
+			for _, connection in ipairs(connections) do Runtime.Untrack(connection) end
+			table.clear(connections)
+		end
+		for _, picture in ipairs(pictures) do
+			connections[#connections + 1] = Runtime.Track(picture:GetPropertyChangedSignal("IsLoaded"):Connect(show))
+		end
+		show()
+	end
+	local wordmark = UI.SidebarText(box, "VISION<font color=\"#3584ff\">X</font>", UDim2.new(.5, -70, 0, 60), UDim2.fromOffset(140, 26), 18, Theme.Text, true)
+	wordmark.TextXAlignment = Enum.TextXAlignment.Center; wordmark.RichText = true
+	State.UI.BrandWordmark = wordmark
+	return box
+end
+
+function UI.InstallSidebarShell(main, surface)
+	-- Reuse the status data and optional player directory; replace the old framing.
+	State.UI.LeftRail.Visible = false
+	State.UI.Footer.Visible = false
+	State.UI.Header:Destroy()
+	for _, child in ipairs(State.UI.Content:GetChildren()) do
+		if child ~= State.UI.PageHost then child:Destroy() end
+	end
+	State.UI.Content.BackgroundTransparency = 1
+	State.UI.PageHost.Position = UDim2.new()
+	State.UI.PageHost.Size = UDim2.fromScale(1, 1)
+	local nav = Util.New("Frame", {Name = "Sidebar", BackgroundTransparency = 1,
+		BorderSizePixel = 0, ZIndex = 6}, surface)
+	State.UI.Sidebar = nav
+	local divider = Util.New("Frame", {Position = UDim2.new(1, -1, 0, 12), Size = UDim2.new(0, 1, 1, -24),
+		BackgroundColor3 = Theme.BorderSoft, BackgroundTransparency = .25, BorderSizePixel = 0}, nav)
+	local brand = UI.BuildSidebarBrand(nav)
+	State.UI.NavHolder = Util.New("ScrollingFrame", {Name = "Navigation", BackgroundTransparency = 1,
+		BorderSizePixel = 0, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Accent, ScrollBarImageTransparency = .65,
+		ScrollingDirection = Enum.ScrollingDirection.Y, ClipsDescendants = true}, nav)
+	local navLayout = Util.New("UIListLayout", {Padding = UDim.new(0, 5),
+		SortOrder = Enum.SortOrder.LayoutOrder}, State.UI.NavHolder)
+	local metrics = Util.New("Frame", {Name = "ConnectionMetrics", BackgroundTransparency = 1,
+		BorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1)}, nav)
+	Util.New("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.BorderSoft,
+		BackgroundTransparency = .15, BorderSizePixel = 0}, metrics)
+	local fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
+	local pingIcon = UI.CreateNavigationIcon(metrics, "PING", 15)
+	State.UI.FPSLabel.Parent = metrics; State.UI.PingLabel.Parent = metrics
+	for _, label in ipairs({State.UI.FPSLabel, State.UI.PingLabel}) do
+		label.Font = Enum.Font.Gotham; label.TextXAlignment = Enum.TextXAlignment.Left
+	end
+	local header = Util.New("Frame", {Name = "PageHeader", BackgroundTransparency = 1,
+		BorderSizePixel = 0, ZIndex = 8}, surface)
+	State.UI.Header = header
+	State.UI.PageTitle = UI.SidebarText(header, "Mira", UDim2.new(), UDim2.new(1, -108, 0, 28), 26, Theme.Text, true)
+	State.UI.PageSubtitle = UI.SidebarText(header, "Ajuste a assistência do seu jeito.", UDim2.fromOffset(0, 33), UDim2.new(1, -108, 0, 18), 12, Theme.Sub)
+	State.UI.HeaderDragArea = Util.New("TextButton", {Name = "MoveMenu", BackgroundTransparency = 1,
+		BorderSizePixel = 0, Text = "", AutoButtonColor = false, Active = true,
+		Size = UDim2.new(1, -100, 1, 0), ZIndex = 10}, header)
+	local function button(symbol, name)
+		local b = Util.New("TextButton", {Name = name, BackgroundColor3 = Theme.Surface3,
+			BackgroundTransparency = .15, BorderSizePixel = 0, Text = symbol, TextColor3 = Theme.Text,
+			Font = Enum.Font.GothamMedium, TextSize = 22, AutoButtonColor = false,
+			AnchorPoint = Vector2.new(1, 0), ZIndex = 11}, header)
+		UI.SetReadableText(b, 22); Util.Corner(b, 10)
+		Util.Stroke(b, Theme.Border, .45, 1); UI.TouchFeedback(b)
+		return b
+	end
+	State.UI.Minimize = button("−", "Minimize")
+	State.UI.Close = button("×", "Close")
+	-- Maximize remains available on the resize control's small companion button.
+	State.UI.Maximize = button("+", "Maximize")
+	State.UI.Maximize.Parent = surface
+	State.UI.Maximize.BackgroundTransparency = 1
+	State.UI.Maximize:FindFirstChildOfClass("UIStroke").Transparency = 1
+	State.UI.ResizeHandle.Parent = surface
+	State.UI.ResizeHandle.AnchorPoint = Vector2.new(1, 1)
+	State.UI.ResizeHandle.Position = UDim2.new(1, -2, 1, -2)
+	State.UI.ResizeHandle.Size = UDim2.fromOffset(18, 18)
+	State.UI.ResizeHandle.BackgroundTransparency = 1
+	for _, c in ipairs(State.UI.ResizeHandle:GetChildren()) do
+		if c:IsA("UIStroke") or c:IsA("UIGradient") then c:Destroy() end
+		if c:IsA("Frame") then c.BackgroundTransparency = .6 end
+	end
+	State.UI.PlayerShortcut = Util.New("TextButton", {Name = "PlayerShortcut", BackgroundColor3 = Theme.Surface3,
+		BackgroundTransparency = .12, BorderSizePixel = 0, Text = "Jogadores e protegidos  ›",
+		TextColor3 = Theme.Sub, Font = Enum.Font.GothamMedium, TextSize = 11, AutoButtonColor = false,
+		Visible = false, ZIndex = 11}, surface)
+	Util.Corner(State.UI.PlayerShortcut, 9)
+	State.UI.PlayerShortcut.Activated:Connect(function()
+		if Runtime.Alive and State.UI.Pages and State.UI.Pages.Players then UI.ShowPage(State.UI.Pages.Players) end
+	end)
+	local function layout()
+		if not Runtime.Alive or not surface.Parent then return end
+		local w, h = surface.AbsoluteSize.X, surface.AbsoluteSize.Y
+		if w <= 0 or h <= 0 then return end
+		local scale = math.clamp(math.min(h / 430, w / 780), .90, 1.6)
+		local style = Config.MenuLayoutStyle
+		local compact = style == "CLEAN" or w < 530
+		local navWidth = compact and 62 or math.clamp(w * (style == "FOCUS" and .16 or .19), 132, 230)
+		local rightWidth = style == "TARGETS" and w >= 820 and math.clamp(w * .21, 170, 250) or 0
+		local gap = math.floor(18 * scale + .5)
+		local headerHeight = math.floor(58 * scale + .5)
+		local playerShortcut = style == "TARGETS" and rightWidth == 0
+		local shortcutHeight = playerShortcut and 32 * scale or 0
+		local top = math.floor(14 * scale + .5)
+		State.UI.SidebarScale, State.UI.SidebarCompact = scale, compact
+		nav.Size = UDim2.new(0, navWidth, 1, 0)
+		brand.Visible = not compact
+		brand.Position = UDim2.new(.5, 0, 0, top)
+		local brandScale = brand:FindFirstChildOfClass("UIScale") or Util.New("UIScale", {}, brand)
+		brandScale.Scale = math.min(scale, navWidth / 150)
+		local navTop = compact and 14 or math.floor(108 * scale)
+		local metricHeight = compact and 59 or math.floor(44 * scale)
+		State.UI.NavHolder.Position = UDim2.fromOffset(compact and 5 or 10, navTop)
+		State.UI.NavHolder.Size = UDim2.new(1, compact and -10 or -20, 1, -(navTop + metricHeight + 10))
+		navLayout.Padding = UDim.new(0, 5 * scale)
+		metrics.Position = UDim2.new(0, 12, 1, -4)
+		metrics.Size = UDim2.new(1, -24, 0, metricHeight)
+		fpsIcon.Box.Visible = not compact; pingIcon.Box.Visible = not compact
+		fpsIcon.Box.Position = UDim2.new(0, 0, .5, -3)
+		pingIcon.Box.Position = UDim2.new(.52, 0, .5, -4)
+		State.UI.FPSLabel.Position = compact and UDim2.fromOffset(0, 7) or UDim2.new(0, 18, .5, -4)
+		State.UI.FPSLabel.Size = compact and UDim2.new(1, 0, 0, 20) or UDim2.new(.5, -18, 0, 16)
+		State.UI.PingLabel.Position = compact and UDim2.fromOffset(0, 30) or UDim2.new(.52, 19, .5, -4)
+		State.UI.PingLabel.Size = compact and UDim2.new(1, 0, 0, 20) or UDim2.new(.48, -19, 0, 16)
+		UI.SetReadableText(State.UI.FPSLabel, math.max(8, 8.5 * scale))
+		UI.SetReadableText(State.UI.PingLabel, math.max(8, 8.5 * scale))
+		local contentWidth = w - navWidth - gap * 2 - (rightWidth > 0 and rightWidth + gap or 0)
+		header.Position = UDim2.fromOffset(navWidth + gap, top)
+		header.Size = UDim2.fromOffset(contentWidth, headerHeight)
+		local buttonSize = math.floor(36 * scale)
+		local reserve = buttonSize * 2 + 16
+		State.UI.PageTitle.Size = UDim2.new(1, -reserve, 0, 29 * scale)
+		State.UI.PageSubtitle.Position = UDim2.fromOffset(0, 31 * scale)
+		State.UI.PageSubtitle.Size = UDim2.new(1, -reserve, 0, 19 * scale)
+		if contentWidth < 360 * scale then
+			State.UI.PageSubtitle.Position = UDim2.fromOffset(0, 38 * scale)
+			State.UI.PageSubtitle.Size = UDim2.new(1, 0, 0, 18 * scale)
+		end
+		UI.SetReadableText(State.UI.PageTitle, 26 * scale)
+		UI.SetReadableText(State.UI.PageSubtitle, 12 * scale)
+		State.UI.HeaderDragArea.Size = UDim2.new(1, -reserve, 1, 0)
+		for i, b in ipairs({State.UI.Close, State.UI.Minimize}) do
+			b.Position = UDim2.new(1, -(i - 1) * (buttonSize + 10), 0, 0)
+			b.Size = UDim2.fromOffset(buttonSize, buttonSize)
+			UI.SetReadableText(b, 23 * scale)
+		end
+		State.UI.Maximize.Position = UDim2.new(1, -22, 1, -22)
+		State.UI.Maximize.Size = UDim2.fromOffset(20, 20)
+		UI.SetReadableText(State.UI.Maximize, 14)
+		State.UI.PlayerShortcut.Visible = playerShortcut
+		State.UI.PlayerShortcut.Position = UDim2.fromOffset(navWidth + gap, top + headerHeight)
+		State.UI.PlayerShortcut.Size = UDim2.fromOffset(contentWidth, 26 * scale)
+		State.UI.Content.Position = UDim2.fromOffset(navWidth + gap - 7, top + headerHeight + shortcutHeight)
+		State.UI.Content.Size = UDim2.new(0, contentWidth + 14, 1, -(top + headerHeight + shortcutHeight + 8 * scale))
+		State.UI.RightRail.Visible = rightWidth > 0
+		State.UI.RightRail.Position = UDim2.new(1, -(rightWidth + gap), 0, top + headerHeight)
+		State.UI.RightRail.Size = UDim2.new(0, rightWidth, 1, -(top + headerHeight + 12))
+		for _, b in ipairs(State.UI.NavHolder:GetChildren()) do
+			if b:IsA("TextButton") then UI.LayoutSidebarButton(b) end
+		end
+		if State.UI.RefreshAimLayout then State.UI.RefreshAimLayout() end
+	end
+	State.UI.UpdateResponsiveLayout = layout
+	State.UI.ApplyMenuLayoutStyle = function(style)
+		Config.MenuLayoutStyle = MENU_LAYOUT_PRESETS[style] and style or "BALANCED"
+		layout()
+		return Config.MenuLayoutStyle
+	end
+	Runtime.Track(surface:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout))
+	task.defer(layout)
+end
+
+function UI.LayoutSidebarButton(button)
+	local scale = State.UI.SidebarScale or 1
+	local compact = State.UI.SidebarCompact
+	button.Size = UDim2.new(1, 0, 0, math.floor(40 * scale))
+	local title = button:FindFirstChild("NavTitle")
+	if title then
+		title.Visible = not compact
+		title.Position = UDim2.new(0, 49 * scale, 0, 0)
+		title.Size = UDim2.new(1, -(54 * scale), 1, 0)
+		UI.SetReadableText(title, 12.5 * scale)
+	end
+	local icon = UI.NavIcons and UI.NavIcons[button]
+	if icon then
+		icon.Box.AnchorPoint = Vector2.new(0, .5)
+		icon.Box.Position = UDim2.new(0, compact and 7 or 12 * scale, .5, 0)
+		local s = icon.Box:FindFirstChildOfClass("UIScale") or Util.New("UIScale", {}, icon.Box)
+		s.Scale = (compact and 24 or 24 * scale) / 32
+	end
+end
+
+
+
 local function BuildVisionRootUI()
 	local root = Util.New("ScreenGui", {
 		Name = "AimAssistProV33",
@@ -8612,19 +9242,19 @@ local function BuildVisionRootUI()
 		ZIndex = 4,
 	}, main)
 	Util.Corner(mainHalo, 17)
-	Util.Stroke(mainHalo, Theme.AccentHot, 0.70, 3)
+	Util.Stroke(mainHalo, Theme.AccentHot, 0.93, 1)
 
 	local shellBorder = Util.New("Frame", {
 		Name = "ShellBorder",
 		Position = UDim2.fromOffset(1, 1),
 		Size = UDim2.new(1, -2, 1, -2),
-		BackgroundColor3 = Theme.Border,
+		BackgroundColor3 = Theme.Glass,
 		BackgroundTransparency = 0.08,
 		BorderSizePixel = 0,
 		ZIndex = 2,
 	}, main)
 	Util.Corner(shellBorder, 20)
-	Util.Stroke(shellBorder, Theme.Accent, 0.12, 1)
+	Util.Stroke(shellBorder, Theme.Accent, 0.32, 1)
 
 	local innerSurface = Util.New("Frame", {
 		Name = "InnerSurface",
@@ -8638,13 +9268,19 @@ local function BuildVisionRootUI()
 	Util.Corner(innerSurface, 18)
 	Util.GlassGradient(
 		innerSurface,
-		Color3.fromRGB(14, 14, 22),
+		Color3.fromRGB(27, 37, 52),
 		Theme.BG,
 		0.04,
 		0.01,
 		90
 	)
 
+	local ambient = Util.New("Frame", {Name = "AmbientLight", Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 3}, innerSurface)
+	Util.New("UIGradient", {Rotation = 45, Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(.6, 1),
+		NumberSequenceKeypoint.new(.84, .98), NumberSequenceKeypoint.new(1, .83),
+	})}, ambient)
 	local header = Util.New("Frame", {
 		Name = "Header",
 		Position = UDim2.fromOffset(3, 3),
@@ -9286,82 +9922,7 @@ local function BuildVisionRootUI()
 		ZIndex = 2,
 	}, root)
 
-	-- Keep the selected format distinct when a phone cannot fit both sidebars.
-	-- Widths use the inner surface, so resizing cannot reuse the previous size.
-	local function resolveMenuColumns(styleName, surfaceWidth)
-		local preset = MENU_LAYOUT_PRESETS[styleName] or MENU_LAYOUT_PRESETS.BALANCED
-		local usableWidth = math.max(math.floor(surfaceWidth + 0.5) - 10, 1)
-		local minimumCenter = math.min(340, math.floor(usableWidth * 0.60))
-		local leftWidth = math.floor(math.clamp(
-			surfaceWidth * preset.Left, preset.MinLeft or 0, preset.MaxLeft or 0
-		) + 0.5)
-		local rightWidth = math.floor(math.clamp(
-			surfaceWidth * preset.Right, preset.MinRight or 0, preset.MaxRight or 0
-		) + 0.5)
-
-		if leftWidth > 0 and rightWidth > 0
-			and usableWidth - leftWidth - rightWidth - 12 < minimumCenter then
-			if preset.PreferRight then
-				leftWidth = 0
-			else
-				rightWidth = 0
-			end
-		end
-
-		-- Leave room for the page even in portrait or a manually resized window.
-		local railBudget = math.max(usableWidth - minimumCenter - 6, 0)
-		if rightWidth == 0 then
-			local budgetRatio = styleName == "FOCUS" and 0.80 or 1
-			leftWidth = math.min(leftWidth, math.floor(railBudget * budgetRatio))
-		elseif leftWidth == 0 then
-			rightWidth = math.min(rightWidth, railBudget)
-		end
-
-		local leftSpace = leftWidth > 0 and leftWidth + 6 or 0
-		local rightSpace = rightWidth > 0 and rightWidth + 6 or 0
-		return leftWidth, rightWidth, leftSpace, rightSpace
-	end
-
-	State.UI.UpdateResponsiveLayout = function()
-		if not main.Parent or not innerSurface.Parent then return end
-		local surfaceWidth = innerSurface.AbsoluteSize.X
-		if surfaceWidth <= 0 then return end
-		local leftWidth, rightWidth, leftSpace, rightSpace =
-			resolveMenuColumns(Config.MenuLayoutStyle, surfaceWidth)
-
-		State.UI.LeftRail.Visible = leftWidth > 0
-		State.UI.RightRail.Visible = rightWidth > 0
-		if leftWidth > 0 then
-			State.UI.LeftRail.Position = UDim2.fromOffset(5, bodyTop)
-			State.UI.LeftRail.Size = UDim2.new(
-				0, leftWidth, 1, -(bodyTop + bodyBottom)
-			)
-		end
-		State.UI.Content.Position = UDim2.fromOffset(5 + leftSpace, bodyTop)
-		State.UI.Content.Size = UDim2.new(
-			1, -(10 + leftSpace + rightSpace), 1, -(bodyTop + bodyBottom)
-		)
-		if rightWidth > 0 then
-			State.UI.RightRail.Position = UDim2.new(1, -(5 + rightWidth), 0, bodyTop)
-			State.UI.RightRail.Size = UDim2.new(
-				0, rightWidth, 1, -(bodyTop + bodyBottom)
-			)
-		end
-	end
-
-	State.UI.ApplyMenuLayoutStyle = function(styleName)
-		Config.MenuLayoutStyle = MENU_LAYOUT_PRESETS[styleName]
-			and styleName
-			or "BALANCED"
-		State.UI.UpdateResponsiveLayout()
-		return Config.MenuLayoutStyle
-	end
-
-	Runtime.Track(
-		innerSurface:GetPropertyChangedSignal("AbsoluteSize"):
-		Connect(State.UI.UpdateResponsiveLayout)
-	)
-	task.defer(State.UI.UpdateResponsiveLayout)
+	UI.InstallSidebarShell(main, innerSurface)
 end
 
 UI.PageScrollCues = {}
@@ -9484,61 +10045,19 @@ function UI.CreatePage(name)
 end
 
 function UI.CreateNavButton(text)
-	local button = Util.New("TextButton", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Theme.Surface2,
-		BackgroundTransparency = 0.12,
-		BorderSizePixel = 0,
-		Text = "",
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		AutoButtonColor = false,
-		ZIndex = 8,
-	}, State.UI.NavHolder)
-
-	Util.Corner(button, 999)
-	Util.Sheen(button, 0.10)
-	local stroke = Util.Stroke(button, Theme.BorderSoft, 0.68, 1)
+	local titles = {MIRA = "Mira", ARMAS = "Armas", CORPO = "Corpo", JOGADORES = "Jogadores", ESP = "ESP", AJUSTES = "Ajustes"}
+	local button = Util.New("TextButton", {Name = "Nav_" .. text, Size = UDim2.new(1, 0, 0, 40),
+		BackgroundColor3 = Theme.CardActive, BackgroundTransparency = 1, BorderSizePixel = 0,
+		Text = "", AutoButtonColor = false}, State.UI.NavHolder)
+	Util.Corner(button, 13)
+	local stroke = Util.Stroke(button, Theme.Accent, 1, 1)
 	stroke.Name = "NavStroke"
-
-	local navGlow = Util.New("Frame", {
-		Name = "NavGlow",
-		Position = UDim2.fromOffset(2, 2),
-		Size = UDim2.new(1, -4, 1, -4),
-		BackgroundColor3 = Theme.AccentSoft,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 8,
-	}, button)
-	Util.Corner(navGlow, 999)
-	Util.Gradient(navGlow, Theme.AccentSoft, Theme.AccentDeep, 90)
-
-	Util.FitText(Util.New("TextLabel", {
-		Name = "NavTitle",
-		Position = UDim2.fromOffset(4, 0),
-		Size = UDim2.new(1, -8, 1, -5),
-		BackgroundTransparency = 1,
-		Text = text,
-		TextColor3 = Theme.Sub,
-		Font = Enum.Font.GothamBold,
-		TextSize = 8,
-		ZIndex = 10,
-	}, button), 6, 10)
-
-	local indicator = Util.New("Frame", {
-		Name = "Indicator",
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -1),
-		Size = UDim2.fromOffset(16, 2),
-		BackgroundColor3 = Theme.Muted,
-		BorderSizePixel = 0,
-		ZIndex = 10,
-	}, button)
-	Util.Corner(indicator, 999)
+	local title = UI.SidebarText(button, titles[text] or text, UDim2.fromOffset(49, 0), UDim2.new(1, -54, 1, 0), 12.5, Theme.Sub)
+	title.Name = "NavTitle"
+	UI.NavIcons = UI.NavIcons or {}
+	UI.NavIcons[button] = UI.CreateNavigationIcon(button, text, 32)
+	UI.LayoutSidebarButton(button)
 	UI.TouchFeedback(button)
-
 	return button
 end
 
@@ -9560,8 +10079,8 @@ function UI.ShowPage(page)
 
 	UI.FlushClosingDialogs()
 	for button, target in pairs(State.UI.PageMap) do
-		if target == previous then previousX = button.AbsolutePosition.X end
-		if target == page then nextX = button.AbsolutePosition.X end
+		if target == previous then previousX = button.AbsolutePosition.Y end
+		if target == page then nextX = button.AbsolutePosition.Y end
 		local active = target == page
 		local indicator = button:FindFirstChild("Indicator")
 		local navStroke = button:FindFirstChild("NavStroke")
@@ -9574,8 +10093,8 @@ function UI.ShowPage(page)
 			button,
 			{
 				BackgroundColor3 =
-					active and Theme.CardActive or Theme.Surface2,
-				BackgroundTransparency = active and 0.02 or 0.16,
+					Theme.CardActive,
+				BackgroundTransparency = active and 0.08 or 1,
 				TextColor3 =
 					active and Theme.Text or Theme.Sub,
 			},
@@ -9595,12 +10114,14 @@ function UI.ShowPage(page)
 				navStroke,
 				{
 					Color = active and Theme.Accent or Theme.BorderSoft,
-					Transparency = active and 0.16 or 0.68,
+					Transparency = active and 0.12 or 1,
 				},
 				0.16
 			)
 		end
 
+		local icon = UI.NavIcons and UI.NavIcons[button]
+		if icon then UI.SetMenuGlyphColor(icon, active and "Text" or "Sub") end
 		if navTitle then
 			Util.Tween(
 				navTitle,
@@ -9625,6 +10146,19 @@ function UI.ShowPage(page)
 		end
 	end
 
+	local headings = {
+		Aim = {"Mira", "Ajuste a assistência do seu jeito."},
+		Assistant = {"Armas", "Escolha a arma e a intensidade da assistência."},
+		Body = {"Corpo", "Escolha onde a mira deve começar."},
+		Players = {"Jogadores", "Encontre, foque ou proteja alguém."},
+		ESP = {"ESP", "Ajuste como os jogadores aparecem na tela."},
+		Engine = {"Ajustes", "Deixe o menu do seu jeito."},
+	}
+	local heading = headings[page.Name]
+	if heading and State.UI.PageTitle then
+		State.UI.PageTitle.Text = heading[1]
+		State.UI.PageSubtitle.Text = heading[2]
+	end
 	State.UI.ActivePage = page
 	if previous and previous ~= page then UI.RevealPage(page, nextX < previousX and -1 or 1) end
 	task.defer(function()
@@ -10567,38 +11101,56 @@ function Pages.BuildVisionAim()
 	local function options(description)
 		return {Organizable = false, Scalable = false, Description = description}
 	end
-	local header = Util.New("Frame", {Name = "AAP_AimHeader", LayoutOrder = -100,
-		Size = UDim2.new(1, 0, 0, 58), BackgroundTransparency = 1, BorderSizePixel = 0}, page)
-	controls.Header = header
-	controls.Title = UI.AimText(header, "Mira", UDim2.fromOffset(2, 3), UDim2.new(1, -132, 0, 23), 16, Theme.Text, true)
-	controls.Status = UI.AimText(header, "Desativada", UDim2.fromOffset(2, 31), UDim2.new(1, -132, 0, 16), 9, Theme.Sub)
-	controls.Power = Util.New("TextButton", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -38, 0, 10),
-		Size = UDim2.fromOffset(86, 32), BackgroundColor3 = Theme.AccentSoft, BackgroundTransparency = .10,
-		BorderSizePixel = 0, Text = "Ativar", TextColor3 = Theme.Text, TextSize = 11,
-		Font = Enum.Font.GothamMedium, AutoButtonColor = false}, header)
-	Util.Corner(controls.Power, 10); UI.TouchFeedback(controls.Power)
-	controls.PowerStroke = Util.Stroke(controls.Power, Theme.Accent, .42, 1)
-	controls.Help = UI.CreateHelpButton(header, "Ajuste sua mira",
-		"Comece pelo FOV: ele define a área ao redor do centro da tela onde a mira procura jogadores. Isso não é a distância no mapa. Precisão maior corrige mais; suavidade maior deixa o movimento menos brusco. Você pode tocar no número para digitar um valor.",
-		UDim2.new(1, 0, 0, 12))
-
-	local area = Util.New("Frame", {Name = "AAP_AimArea", Size = UDim2.new(1, 0, 0, 100),
-		BackgroundColor3 = Theme.Card, BackgroundTransparency = .10, BorderSizePixel = 0, LayoutOrder = 0}, page)
-	Util.Corner(area, 14); Util.Stroke(area, Theme.BorderSoft, .66, 1)
+	local activation = UI.CreateToggle(page, "Assistência de mira",
+		"Acompanha o alvo enquanto estiver ativada.", fixed)
+	activation.Card.Name = "AimActivation"
+	activation.Card.LayoutOrder = -100
+	controls.Activation = activation
+	controls.Header = activation.Card
+	controls.Title = activation.Title
+	controls.Power = activation.Card
+	controls.PowerStroke = activation.Stroke
+	controls.Status = UI.SidebarText(activation.Card, "Desativada", UDim2.new(), UDim2.new(), 11, Theme.Sub)
+	controls.Status.TextXAlignment = Enum.TextXAlignment.Right
+	controls.PowerIcon = UI.CreateNavigationIcon(activation.Card, "MIRA", 28)
+	UI.SetMenuGlyphColor(controls.PowerIcon, "Text")
+	controls.PowerIcon.Box.Position = UDim2.fromOffset(14, 12)
+	controls.Help = UI.CreateHelpButton(activation.Card, "Ajuste sua mira",
+		"A área de busca define onde a mira procura jogadores ao redor do centro da tela. Precisão maior corrige mais; suavidade maior deixa o movimento menos brusco. Toque no número para digitar um valor. O estado da mira e os demais ajustes estão em Ajustes avançados.",
+		UDim2.new(1, -2, 0, -37))
+	controls.Help.Visible = false -- The same help is available inside the advanced group.
+	local overview = Util.New("Frame", {Name = "AimOverview", Size = UDim2.new(1, 0, 0, 156),
+		BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = 0}, page)
+	controls.Overview = overview
+	local area = UI.SidebarSurface(overview, "AimSearchArea")
 	controls.Area = area
 	controls.FOVSlider = UI.CreateSlider(area, "Área de busca", 10, 2000, Config.FOV, " px", function(value)
 		Config.FOV = math.floor(value + 0.5)
 		Aim.MarkAssistantCustomized()
+		if controls.Layout then controls.Layout() end
 	end, options("Maior inclui jogadores mais afastados do centro."))
-	controls.FOVSlider.Card.BackgroundTransparency = 1
-	for _, child in ipairs(controls.FOVSlider.Card:GetChildren()) do
-		if child:IsA("UIStroke") then child.Transparency = 1 end
-	end
 	controls.FOVPreview = UI.CreateAimFOVPreview(area)
-
-	local response = Util.New("Frame", {Name = "AAP_AimResponse", Size = UDim2.new(1, 0, 0, 0),
-		BackgroundTransparency = 1, LayoutOrder = 1}, page)
+	local rules = UI.SidebarSurface(overview, "AimTargetRules")
+	controls.Rules = rules
+	controls.RulesTitle = UI.SidebarText(rules, "Escolha do alvo", UDim2.new(), UDim2.new(), 13, Theme.Text, true)
+	controls.RailLock.Card.Parent = rules
+	controls.LockTitle = UI.SidebarText(controls.RailLock.Card, "Manter alvo", UDim2.new(), UDim2.new(), 12, Theme.Sub)
+	for _, child in ipairs(controls.RailLock.Card:GetChildren()) do
+		if child:IsA("TextLabel") and child ~= controls.LockTitle then child.Visible = false end
+	end
+	controls.RailLock.Marker.Visible = false
+	controls.Wall = UI.CreateToggle(rules, "Verificar paredes", "Evita focar jogadores atrás de paredes.", fixed)
+	controls.Priority = UI.CreateCycle(rules, "Parte do corpo", "Região que a mira tenta usar primeiro.", fixed)
+	controls.RuleLines = {}
+	for i = 1, 3 do
+		controls.RuleLines[i] = Util.New("Frame", {Name = "RuleDivider", BackgroundColor3 = Theme.BorderSoft,
+			BackgroundTransparency = .2, BorderSizePixel = 0}, rules)
+	end
+	local response = UI.SidebarSurface(page, "AimMovement", 1)
 	controls.Response = response
+	controls.ResponseTitle = UI.SidebarText(response, "Movimento da mira", UDim2.new(), UDim2.new(), 13, Theme.Text, true)
+	controls.ResponseLine = Util.New("Frame", {BackgroundColor3 = Theme.BorderSoft, BackgroundTransparency = .2, BorderSizePixel = 0}, response)
+	controls.ResponseDivider = Util.New("Frame", {BackgroundColor3 = Theme.BorderSoft, BackgroundTransparency = .2, BorderSizePixel = 0}, response)
 	controls.Accuracy = UI.CreateSlider(response, "Precisão", 0, 100, Config.Accuracy, "%", function(value)
 		Config.Accuracy = math.floor(value + 0.5)
 		Aim.MarkAssistantCustomized()
@@ -10607,16 +11159,36 @@ function Pages.BuildVisionAim()
 		Config.Smoothing = math.floor(value + 0.5)
 		Aim.MarkAssistantCustomized()
 	end, options("Maior deixa o movimento mais suave."))
-	local rules = UI.CreateAimSection(page, "Escolha do alvo", nil, 2)
-	controls.Rules = rules
-	controls.Mode = UI.CreateCycle(rules, "Quem pode ser alvo", "Todos ou apenas o jogador marcado.", fixed)
-	controls.Wall = UI.CreateCycle(rules, "Verificar paredes", "Evita focar jogadores atrás de paredes.", fixed)
-	controls.Priority = UI.CreateCycle(rules, "Parte do corpo", "Região que a mira tenta usar primeiro.", fixed)
-	local appearance = UI.CreateAimSection(page, "Círculo na tela", nil, 3)
+	local advancedContent, advancedGroup = UI.CreateExpandableGroup(page, "Ajustes avançados", nil, false)
+	State.UI.AimAdvancedContainer = advancedContent
+	controls.AdvancedGroup = advancedGroup
+	advancedGroup.Shell.LayoutOrder = 5
+	controls.Help.Parent = advancedContent
+	controls.Help.Visible = true
+	-- Existing status remains available without occupying the overview.
+	local status = State.UI.Status and State.UI.Status.Parent
+	if status then
+		status.Parent = advancedContent; status.Position = UDim2.new(); status.Size = UDim2.new(1, 0, 0, 82)
+		status.LayoutOrder = -50
+		State.UI.StatusTitle.Position = UDim2.fromOffset(12, 6)
+		State.UI.StatusTitle.Size = UDim2.new(1, -54, 0, 18)
+		UI.SetReadableText(State.UI.StatusTitle, 10)
+		State.UI.StatusDot.Position = UDim2.fromOffset(12, 38)
+		State.UI.StatusMini.Position = UDim2.fromOffset(25, 28)
+		State.UI.StatusMini.Size = UDim2.new(1, -39, 0, 20)
+		UI.SetReadableText(State.UI.StatusMini, 10)
+		State.UI.Status.Position = UDim2.fromOffset(12, 52)
+		State.UI.Status.Size = UDim2.new(1, -24, 0, 24)
+		UI.SetReadableText(State.UI.Status, 10)
+		controls.Help.Parent = status; controls.Help.Position = UDim2.new(1, -8, 0, 8)
+	end
+	controls.Mode = UI.CreateCycle(advancedContent, "Quem pode ser alvo", "Todos ou apenas o jogador marcado.", fixed)
+	controls.Mode.Card.LayoutOrder = -40
+	local appearance, appearanceShell = UI.CreateAimSection(advancedContent, "Círculo na tela", nil, -30)
 	controls.Appearance = appearance
 	controls.FOVVisibility = UI.CreateToggle(appearance, "Mostrar FOV", "Ocultar o círculo mantém a área de busca.", fixed)
 	controls.FOVStyle = UI.CreateCycle(appearance, "Estilo do FOV", "Escolha o desenho do círculo.", fixed)
-	local presets, presetShell = UI.CreateAimSection(page, "Ajustes rápidos", "Toque para aplicar uma combinação pronta.", 4)
+	local presets, presetShell = UI.CreateAimSection(advancedContent, "Ajustes rápidos", "Toque para aplicar uma combinação pronta.", -20)
 	controls.PresetGrid = presets
 	local presetData = {
 		{
@@ -10710,48 +11282,202 @@ function Pages.BuildVisionAim()
 
 	function controls.Layout()
 		if not Runtime.Alive or not page.Parent then return end
-		local columns = page.AbsoluteSize.X - 14 >= 400 and 2 or 1
-		local function grid(holder, list, heights, spanLast)
-			local y = 0
-			for index, card in ipairs(list) do
-				local column = (index - 1) % columns
-				local span = spanLast and index == #list and column == 0
-				local wide = columns == 1 or span
-				card.Position = UDim2.new(wide and 0 or column / columns, column == 0 and 0 or 4, 0, y)
-				card.Size = UDim2.new(wide and 1 or 1 / columns, wide and 0 or -4, 0, heights[index])
-				if column == columns - 1 or index == #list or span then
-					y += math.max(heights[index], column == 1 and heights[index - 1] or 0) + 8
+		local scale = State.UI.SidebarScale or 1
+		local width = math.max(page.AbsoluteSize.X - 14, 1)
+		local wide = width >= 490 * scale
+		local gap, pad = 8 * scale, 14 * scale
+		local list = page:FindFirstChildOfClass("UIListLayout")
+		if list then list.Padding = UDim.new(0, gap) end
+		local function strip(card)
+			card.BackgroundTransparency = 1
+			for _, child in ipairs(card:GetChildren()) do
+				if child:IsA("UIStroke") then child.Transparency = 1 end
+				if child:IsA("UIGradient") then child.Enabled = false end
+			end
+		end
+		local function slider(control, search)
+			strip(control.Card)
+			control.Description.Visible = false
+			control.Decrease.Visible = false; control.Increase.Visible = false
+			control.Title.Position = UDim2.fromOffset(0, 0)
+			control.Title.Size = UDim2.new(1, -68 * scale, 0, 20 * scale)
+			control.Title.Font = search and Enum.Font.GothamBold or Enum.Font.Gotham
+			control.Title.TextColor3 = search and Theme.Text or Theme.Sub
+			UI.SetReadableText(control.Title, (search and 13 or 11.5) * scale)
+			control.Label.Position = UDim2.new(1, 0, 0, 0)
+			control.Label.Size = UDim2.fromOffset(55 * scale, 20 * scale)
+			control.Label.BackgroundColor3 = Theme.Surface3
+			control.Label.TextColor3 = Theme.Text
+			local corner = control.Label:FindFirstChildOfClass("UICorner")
+			if corner then corner.CornerRadius = UDim.new(0, 6 * scale) end
+			UI.SetReadableText(control.Label, 10.5 * scale)
+			control.Track.Parent.Position = UDim2.new(0, 0, 1, 0)
+			control.Track.Parent.Size = UDim2.new(1, 0, 0, 25 * scale)
+			control.Track.Position = UDim2.new(0, 0, .5, 0)
+			control.Track.Size = UDim2.new(1, 0, 0, 6 * scale)
+			control.Track.BackgroundColor3 = Theme.Chip
+			control.Thumb.Size = UDim2.fromOffset(15 * scale, 15 * scale)
+			for _, child in ipairs(control.Thumb:GetChildren()) do
+				if child:IsA("UIStroke") then child.Transparency = 1 end
+			end
+			for _, child in ipairs(control.Fill:GetChildren()) do
+				if child:IsA("UIGradient") then child.Enabled = false end
+			end
+		end
+		local function switch(control, enabled, rail)
+			local sw = control.Switch
+			sw.AnchorPoint = Vector2.new(1, .5)
+			sw.Position = UDim2.new(1, 0, .5, 0)
+			sw.Size = UDim2.fromOffset(46 * scale, 26 * scale)
+			sw.BackgroundColor3 = enabled and Theme.Accent or Theme.Chip
+			control.SwitchStroke.Transparency = enabled and 1 or .6
+			control.Knob.Size = UDim2.fromOffset(20 * scale, 20 * scale)
+			local position = enabled and UDim2.new(1, -23 * scale, 0, 3 * scale) or UDim2.fromOffset(3 * scale, 3 * scale)
+			if control.OverviewScale ~= scale then
+				Util.StopTween(control.Knob)
+				control.Knob.Position = position
+			elseif control.OverviewEnabled ~= enabled then
+				Util.Tween(control.Knob, {Position = position}, .16)
+			end
+			control.OverviewScale, control.OverviewEnabled = scale, enabled
+			control.Knob.BackgroundColor3 = Theme.Text
+			if not rail then control.Description.Visible = false end
+		end
+		local power = controls.Activation
+		power.Card.Size = UDim2.new(1, 0, 0, 48 * scale)
+		power.Card.BackgroundColor3 = Theme.Card; power.Card.BackgroundTransparency = .04
+		power.Stroke.Color = Theme.Border; power.Stroke.Transparency = .40
+		power.Title.Position = UDim2.fromOffset(54 * scale, 7 * scale)
+		power.Title.Size = UDim2.new(1, -190 * scale, 0, 20 * scale)
+		UI.SetReadableText(power.Title, 13 * scale)
+		switch(power, Config.AimEnabled)
+		power.Switch.Position = UDim2.new(1, -pad, .5, 0)
+		power.Description.Visible = width >= 400
+		power.Description.Position = UDim2.fromOffset(54 * scale, 27 * scale)
+		power.Description.Size = UDim2.new(1, -132 * scale, 0, 15 * scale)
+		UI.SetReadableText(power.Description, 10.5 * scale)
+		power.Description.TextWrapped = false
+		controls.Status.Position = UDim2.new(1, -132 * scale, 0, 14 * scale)
+		controls.Status.Size = UDim2.fromOffset(65 * scale, 20 * scale)
+		controls.Status.Visible = width >= 410
+		if width < 410 then power.Title.Size = UDim2.new(1, -126 * scale, 1, 0); power.Title.Position = UDim2.fromOffset(54 * scale, 0) end
+		UI.SetReadableText(controls.Status, 10.5 * scale)
+		controls.PowerIcon.Box.Position = UDim2.fromOffset(15 * scale, 10 * scale)
+		local iconScale = controls.PowerIcon.Box:FindFirstChildOfClass("UIScale") or Util.New("UIScale", {}, controls.PowerIcon.Box)
+		iconScale.Scale = scale
+		local areaHeight = 156 * scale
+		local compactBody = (wide and width * .52 - gap / 2 or width) - pad * 2 < 240 * scale
+		local rulesHeight = (compactBody and 181 or 156) * scale
+		controls.Overview.Size = UDim2.new(1, 0, 0, wide and math.max(areaHeight, rulesHeight) or areaHeight + rulesHeight + gap)
+		area.Position = UDim2.new()
+		area.Size = UDim2.new(wide and .48 or 1, wide and -gap / 2 or 0, 0, areaHeight)
+		rules.Position = wide and UDim2.new(.48, gap / 2, 0, 0) or UDim2.fromOffset(0, areaHeight + gap)
+		rules.Size = UDim2.new(wide and .52 or 1, wide and -gap / 2 or 0, 0, rulesHeight)
+		controls.FOVSlider.Card.Position = UDim2.fromOffset(pad, 8 * scale)
+		controls.FOVSlider.Card.Size = UDim2.new(1, -2 * pad, 1, -14 * scale)
+		slider(controls.FOVSlider, true)
+		local preview = controls.FOVPreview
+		preview.Box.AnchorPoint = Vector2.zero
+		preview.Box.Position = UDim2.fromOffset(11 * scale, 31 * scale)
+		preview.Box.Size = UDim2.new(1, -22 * scale, 1, -66 * scale)
+		preview.Box.Visible = true
+		preview.Box.BackgroundColor3 = Theme.Surface2
+		preview.Caption.Visible = false
+		preview.Ring.Position = UDim2.fromScale(.5, .5)
+		local radius = (63 + math.clamp(Config.FOV / 2000, 0, 1) * 25) * scale
+		preview.Ring.Size = UDim2.fromOffset(radius, radius)
+		preview.Outline.Color = Theme.Accent
+		preview.Horizontal.Size = UDim2.fromOffset(12 * scale, 1)
+		preview.Vertical.Size = UDim2.fromOffset(1, 12 * scale)
+		preview.Horizontal.BackgroundColor3 = Theme.Text; preview.Vertical.BackgroundColor3 = Theme.Text
+		controls.RulesTitle.Position = UDim2.fromOffset(pad, 8 * scale)
+		controls.RulesTitle.Size = UDim2.new(1, -2 * pad, 0, 20 * scale)
+		UI.SetReadableText(controls.RulesTitle, 13 * scale)
+		for i, control in ipairs({controls.RailLock, controls.Wall, controls.Priority}) do
+			local card = control.Card
+			strip(card)
+			card.Position = UDim2.fromOffset(pad, (32 + (i - 1) * 40) * scale)
+			card.Size = UDim2.new(1, -2 * pad, 0, 40 * scale)
+			local title = i == 1 and controls.LockTitle or control.Title
+			title.Position = UDim2.new()
+			title.Size = UDim2.new(1, -(i == 3 and 150 or 52) * scale, 1, 0)
+			title.Font = Enum.Font.Gotham; title.TextColor3 = Theme.Sub
+			UI.SetReadableText(title, 11.5 * scale)
+			controls.RuleLines[i].Position = UDim2.fromOffset(pad, (31 + (i - 1) * 40) * scale)
+			controls.RuleLines[i].Size = UDim2.new(1, -2 * pad, 0, 1)
+			if i < 3 then
+				switch(control, i == 1 and Config.StickyTarget or i == 2 and Config.WallCheck, i == 1)
+			else
+				control.Description.Visible = false
+				control.Value.AnchorPoint = Vector2.new(1, .5)
+				control.Value.Position = UDim2.new(1, 0, .5, 0)
+				control.Value.Size = UDim2.fromOffset(145 * scale, 30 * scale)
+				control.Value.BackgroundColor3 = Theme.Surface3
+				control.Value.TextColor3 = Theme.Text
+				control.Value.TextXAlignment = Enum.TextXAlignment.Left
+				control.Value.Font = Enum.Font.Gotham
+				local corner = control.Value:FindFirstChildOfClass("UICorner")
+				if corner then corner.CornerRadius = UDim.new(0, 8 * scale) end
+				local stroke = control.Value:FindFirstChildOfClass("UIStroke")
+				if stroke then stroke.Color = Theme.Border; stroke.Transparency = .3 end
+				if compactBody then
+					card.Size = UDim2.new(1, -2 * pad, 0, 64 * scale)
+					title.Size = UDim2.new(1, 0, 0, 24 * scale)
+					control.Value.AnchorPoint = Vector2.new(0, 1)
+					control.Value.Position = UDim2.new(0, 0, 1, -5 * scale)
+					control.Value.Size = UDim2.new(1, 0, 0, 30 * scale)
 				end
+				UI.SetReadableText(control.Value, 10.5 * scale)
+				UI.AttachChoiceIndicator(control)
+				if control.RefreshChoiceIndicator then control.RefreshChoiceIndicator() end
+			end
+		end
+		response.Size = UDim2.new(1, 0, 0, (wide and 76 or 127) * scale)
+		controls.ResponseTitle.Position = UDim2.fromOffset(pad, 8 * scale)
+		controls.ResponseTitle.Size = UDim2.new(1, -2 * pad, 0, 20 * scale)
+		UI.SetReadableText(controls.ResponseTitle, 13 * scale)
+		controls.ResponseLine.Position = UDim2.fromOffset(pad, 30 * scale)
+		controls.ResponseLine.Size = UDim2.new(1, -2 * pad, 0, 1)
+		controls.ResponseDivider.Visible = wide
+		controls.ResponseDivider.Position = UDim2.new(.49, 0, 0, 36 * scale)
+		controls.ResponseDivider.Size = UDim2.new(0, 1, 1, -44 * scale)
+		for i, control in ipairs({controls.Accuracy, controls.Smoothing}) do
+			control.Card.Position = UDim2.new(wide and (i - 1) * .5 or 0, pad, 0, (35 + (wide and 0 or (i - 1) * 51)) * scale)
+			control.Card.Size = UDim2.new(wide and .5 or 1, -2 * pad, 0, 38 * scale)
+			slider(control, false)
+		end
+		local function grid(holder, cards, heights)
+			local columns = wide and 2 or 1
+			local y = 0
+			for i, card in ipairs(cards) do
+				local column = (i - 1) % columns
+				local full = columns == 1 or i == #cards and column == 0
+				card.Position = UDim2.new(full and 0 or .5, column == 1 and 4 or 0, 0, y)
+				if not full and column == 0 then card.Position = UDim2.fromOffset(0, y) end
+				card.Size = UDim2.new(full and 1 or .5, full and 0 or -4, 0, heights[i])
+				if column == columns - 1 or i == #cards then y += heights[i] + 8 end
 			end
 			holder.Size = UDim2.new(1, 0, 0, math.max(y - 8, 0))
 		end
-		local fovHeight = UI.StyleAimControl(controls.FOVSlider)
-		local previewVisible = page.AbsoluteSize.X - 14 >= 400
-		controls.FOVPreview.Box.Visible = previewVisible
-		controls.FOVSlider.Card.Size = UDim2.new(1, previewVisible and -100 or 0, 0, fovHeight)
-		controls.FOVSlider.Card.BackgroundTransparency = 1
-		area.Size = UDim2.new(1, 0, 0, fovHeight)
-		grid(response, {controls.Accuracy.Card, controls.Smoothing.Card},
-			{UI.StyleAimControl(controls.Accuracy), UI.StyleAimControl(controls.Smoothing)})
-		grid(rules, {controls.Mode.Card, controls.Wall.Card, controls.Priority.Card},
-			{UI.StyleAimControl(controls.Mode), UI.StyleAimControl(controls.Wall), UI.StyleAimControl(controls.Priority)}, true)
+		UI.StyleAimControl(controls.Mode)
 		grid(appearance, {controls.FOVVisibility.Card, controls.FOVStyle.Card},
 			{UI.StyleAimControl(controls.FOVVisibility), UI.StyleAimControl(controls.FOVStyle)})
 		local cards, heights = {}, {}
-		for index, data in ipairs(presetData) do
-			cards[index] = controls.PresetCards[data.Key].Card
-			heights[index] = math.max(80, math.floor(88 * Config.ControlScale + .5))
+		for i, data in ipairs(presetData) do
+			cards[i] = controls.PresetCards[data.Key].Card
+			heights[i] = math.max(80, math.floor(88 * Config.ControlScale + .5))
 		end
-		grid(presets, cards, heights, true)
+		grid(presets, cards, heights)
+		controls.AdvancedGroup.Header.Size = UDim2.new(1, 0, 0, 32 * scale)
 	end
 	function controls.Refresh()
 		if not Runtime.Alive or not page.Parent then return end
-		controls.Power.Text = Config.AimEnabled and "Desativar" or "Ativar"
+		controls.Power.Text = ""
 		controls.Power.BackgroundColor3 = Config.AimEnabled and Theme.CardActive or Theme.AccentSoft
 		controls.Status.Text = Config.AimEnabled and "Ativada" or "Desativada"
 		controls.Status.TextColor3 = Config.AimEnabled and Theme.Accent2 or Theme.Sub
 		UI.SetRailToggle(controls.RailAim, Config.AimEnabled)
-		UI.SetRailToggle(controls.RailLock, Config.StickyTarget)
+		
 		UI.SetRailToggle(controls.RailESP, Config.ESPEnabled)
 
 		controls.FOVSlider:SetValue(Config.FOV, false)
@@ -10759,7 +11485,7 @@ function Pages.BuildVisionAim()
 		controls.Smoothing:SetValue(Config.Smoothing, false)
 		controls.Mode.Value.Text =
 			Config.AimMode == "AUTO" and "Todos" or "Só o escolhido"
-		controls.Wall.Value.Text = Config.WallCheck and "Ativado" or "Desativado"
+		-- Overview switches keep their animation state between refreshes.
 		controls.FOVStyle.Value.Text =
 			styleLabels[Config.FOVStyle] or "Tático"
 		UI.SetToggle(controls.FOVVisibility, Config.ShowFOVCircle)
@@ -10834,7 +11560,8 @@ function Pages.BuildVisionAim()
 		)
 	end)
 
-	controls.RailLock.Card.MouseButton1Click:Connect(function()
+	controls.RailLock.Card.Activated:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
 		Config.StickyTarget = not Config.StickyTarget
 		Aim.MarkAssistantCustomized()
 		Aim.ClearCurrentTarget("Manter alvo foi alterado")
@@ -10870,23 +11597,13 @@ function Pages.BuildVisionAim()
 		end
 	)
 
-	UI.BindChoiceMenu(
-		controls.Wall,
-		"Verificar paredes",
-		{
-			{Value = true, Label = "Ativado", Description = "Evita focar jogadores atrás de paredes."},
-			{Value = false, Label = "Desativado", Description = "Não verifica se existe algo na frente do jogador."},
-		},
-		function()
-			return Config.WallCheck
-		end,
-		function(value)
-			Config.WallCheck = value == true
-			Aim.MarkAssistantCustomized()
-			Aim.ClearCurrentTarget("Verificação de paredes alterada")
-			controls.Refresh()
-		end
-	)
+	controls.Wall.Card.Activated:Connect(function()
+		if not Runtime.Alive or State.UI.LayoutEditMode then return end
+		Config.WallCheck = not Config.WallCheck
+		Aim.MarkAssistantCustomized()
+		Aim.ClearCurrentTarget("Verificação de paredes alterada")
+		controls.Refresh()
+	end)
 
 	local priorityChoices = {}
 	for _, regionName in ipairs(BodyRegionOrder) do
@@ -10978,11 +11695,6 @@ function Pages.BuildVisionAim()
 			UI.Toast("Ajuste atual aplicado")
 		end
 	end)
-	local advancedContent, advancedGroup = UI.CreateExpandableGroup(page, "Ajustes avançados",
-		"Movimento e arma.", false)
-	State.UI.AimAdvancedContainer = advancedContent
-	controls.AdvancedGroup = advancedGroup
-	advancedGroup.Shell.LayoutOrder = 5
 	local lastWidth = -1
 	page:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 		if page.AbsoluteSize.X ~= lastWidth then lastWidth = page.AbsoluteSize.X; controls.Layout() end
@@ -11907,12 +12619,12 @@ end
 
 function UI.CreateBodyWorkspace(page, controls)
 	page:SetAttribute("AAPHideScrollCue", true)
-	local header = Util.New("Frame", {Name = "AAP_BodyHeader", Size = UDim2.new(1, 0, 0, 58),
+	local header = Util.New("Frame", {Name = "AAP_BodyHeader", Size = UDim2.new(1, 0, 0, 34),
 		BackgroundTransparency = 1, LayoutOrder = -100}, page)
-	UI.AimText(header, "Corpo", UDim2.fromOffset(2, 2), UDim2.new(1, -42, 0, 24), 16, Theme.Text, true)
-	UI.AimText(header, "Escolha onde a mira deve começar.", UDim2.fromOffset(2, 32), UDim2.new(1, -42, 0, 16), 9, Theme.Sub)
+	UI.AimText(header, "Parte principal", UDim2.fromOffset(2, 2), UDim2.new(1, -42, 0, 24), 16, Theme.Text, true)
+	
 	UI.CreateHelpButton(header, "Sua parte principal",
-		"Toque no boneco ou escolha uma parte pela lista. R6 tem seis partes; R15 separa braços, pernas e tronco em mais segmentos. A escolha também aparece na aba Mira. Se o jogador usar outro modelo, a mira procura a região equivalente.", UDim2.new(1, 0, 0, 10))
+		"Toque no boneco ou escolha uma parte pela lista. R6 tem seis partes; R15 separa braços, pernas e tronco em mais segmentos. A escolha também aparece na aba Mira. Se o jogador usar outro modelo, a mira procura a região equivalente.", UDim2.new(1, 0, 0, -2))
 	local panel = Util.New("Frame", {Name = "AAP_BodyWorkspace", Size = UDim2.new(1, 0, 0, 296),
 		BackgroundColor3 = Theme.Card, BackgroundTransparency = .12, BorderSizePixel = 0, LayoutOrder = 0}, page)
 	Util.Corner(panel, 14); Util.Stroke(panel, Theme.BorderSoft, .55, 1)
@@ -13705,7 +14417,7 @@ function UI.CreateSettingsWorkspace(page)
 	tiles:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutTiles)
 	layoutTiles()
 	function view.Refresh()
-		local theme = ThemePresets[Config.UITheme] or ThemePresets.RED
+		local theme = ThemePresets[Config.UITheme] or ThemePresets.BLUE
 		view.SummaryTitle.Text = theme.Label
 		view.SummaryDetail.Text = tostring(math.floor(Config.MenuScale * 100 + .5)) .. "% · " .. ((MENU_LAYOUT_PRESETS[Config.MenuLayoutStyle] or MENU_LAYOUT_PRESETS.BALANCED).Label)
 		view.Tiles.MENU.State.Text = theme.Label
@@ -14269,7 +14981,7 @@ function Pages.BuildEngine()
 
 		local themePreset =
 			ThemePresets[Config.UITheme]
-			or ThemePresets.RED
+			or ThemePresets.BLUE
 		controls.Theme.Value.Text = themePreset.Label
 
 		State.UI.DebugOverlay.Visible =
@@ -15516,7 +16228,7 @@ function UI.RefreshAllControls()
 end
 
 function UI.ApplyConfigurationState(message, resetLayout)
-	Config.UITheme = ThemePresets[Config.UITheme] and Config.UITheme or "RED"
+	Config.UITheme = ThemePresets[Config.UITheme] and Config.UITheme or "BLUE"
 	Config.MenuLayoutStyle = MENU_LAYOUT_PRESETS[Config.MenuLayoutStyle]
 		and Config.MenuLayoutStyle
 		or "BALANCED"
@@ -17385,7 +18097,7 @@ local function StartRender()
 					State.LastStatsUpdate = now
 					if State.UI.FPSLabel then
 						State.UI.FPSLabel.Text =
-							"FPS: " .. tostring(math.floor(State.SmoothedFPS + 0.5))
+							tostring(math.floor(State.SmoothedFPS + 0.5)) .. " FPS"
 					end
 
 					if State.UI.PingLabel then
@@ -17402,8 +18114,8 @@ local function StartRender()
 								and Persistence.FiniteNumber(ping, nil)
 							State.UI.PingLabel.Text =
 								validPing
-								and ("PING: " .. tostring(math.floor(validPing + 0.5)) .. " ms")
-								or "PING: --"
+								and (tostring(math.floor(validPing + 0.5)) .. " ms")
+								or "-- ms"
 					end
 				end
 
@@ -17889,7 +18601,7 @@ local function InitializeVisionX()
 		end)
 	end)
 	Loading.Finish()
-	print(string.format("[VisionX V35.2.0] Menu iniciado: %d tarefas concluídas em %.2f s.",
+	print(string.format("[VisionX V35.3.0] Menu iniciado: %d tarefas concluídas em %.2f s.",
 		State.InitializationReport.Tasks,State.InitializationReport.Seconds))
 end
 
