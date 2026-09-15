@@ -1,5 +1,5 @@
--- V35.3.6 — corrige compilação do bootstrap e mantém o Wi-Fi clean animado.
--- Bootstrap do build completo V35.3.4 com o patch visual V35.3.6 aplicado em memória.
+-- V35.3.7 — Wi-Fi refinado: ondas mais finas, separadas e proporcionais.
+-- Bootstrap do build completo V35.3.4 com o patch visual V35.3.7 aplicado em memória.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
 
@@ -18,7 +18,7 @@ end
 
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.6 — Wi-Fi clean nativo com ondas animadas por qualidade; demais funções preservadas.",
+    "-- V35.3.7 — Wi-Fi refinado: ondas mais finas, separadas e proporcionais; demais funções preservadas.",
     1
 )
 
@@ -31,12 +31,15 @@ local pingStartMarker = '    if kind == "PING" then\n'
 local pingEndMarker = '    else\n        if kind == "JOGADORES" or kind == "ESP" then'
 
 local newPingBranch = [=[    if kind == "PING" then
-        -- Wi-Fi 100% nativo: evita borrado, pixelização e recorte de sprite.
+        -- Wi-Fi 100% nativo e vetorial: sem sprite borrado e com espaçamento limpo.
         glyph.PingLayers = {}
-        local centerX, centerY = 16, 27
-        local radii = {7, 12, 17}
-        local widths = {3.0, 3.2, 3.4}
-        local extentRatio = .78
+
+        -- Geometria refinada para evitar o efeito "grudado" entre as ondas.
+        local centerX, centerY = 16, 26.3
+        local pointY = 29.0
+        local radii = {6.2, 11.8, 17.4}
+        local widths = {2.15, 2.35, 2.55}
+        local extentRatio = .80
 
         for index = 0, 3 do
             local holder = Util.New("Frame", {
@@ -76,8 +79,8 @@ local newPingBranch = [=[    if kind == "PING" then
             end
 
             if index == 0 then
-                -- Ponto central maior e perfeitamente alinhado.
-                dot(centerX, centerY, 4.8)
+                -- Ponto menor e mais afastado da primeira onda.
+                dot(centerX, pointY, 3.6)
             else
                 local radius = radii[index]
                 local weight = widths[index]
@@ -86,7 +89,7 @@ local newPingBranch = [=[    if kind == "PING" then
                 local endpointY = centerY - rise
                 local padding = 5
 
-                -- Folga extra no topo para o arco externo nunca ser cortado.
+                -- Clip com folga para preservar a curvatura e não cortar o arco externo.
                 local clip = Util.New("Frame", {
                     Name = "CircularArcClip",
                     Position = UDim2.fromOffset(centerX - radius - padding, centerY - radius - padding),
@@ -110,7 +113,7 @@ local newPingBranch = [=[    if kind == "PING" then
                 end)
                 ink(stroke, "Color", "Transparency")
 
-                -- Caps circulares deixam as duas pontas de cada onda idênticas.
+                -- Caps circulares mantêm as duas extremidades perfeitamente suaves.
                 dot(centerX - extent, endpointY, weight)
                 dot(centerX + extent, endpointY, weight)
             end
@@ -229,5 +232,5 @@ source = replaceBetween(
 )
 
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.6: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.7: " .. tostring(compileError))
 return compiled()
