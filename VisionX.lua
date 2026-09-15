@@ -1,5 +1,5 @@
--- V35.3.5 — Wi-Fi clean nativo com ondas animadas por qualidade; demais funções preservadas.
--- Bootstrap do build completo V35.3.4 com o patch visual V35.3.5 aplicado em memória.
+-- V35.3.6 — corrige compilação do bootstrap e mantém o Wi-Fi clean animado.
+-- Bootstrap do build completo V35.3.4 com o patch visual V35.3.6 aplicado em memória.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
 
@@ -18,7 +18,7 @@ end
 
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.5 — Wi-Fi clean nativo com ondas animadas por qualidade; demais funções preservadas.",
+    "-- V35.3.6 — Wi-Fi clean nativo com ondas animadas por qualidade; demais funções preservadas.",
     1
 )
 
@@ -30,7 +30,7 @@ local sharpStart = assert(
 local pingStartMarker = '    if kind == "PING" then\n'
 local pingEndMarker = '    else\n        if kind == "JOGADORES" or kind == "ESP" then'
 
-local newPingBranch = [[    if kind == "PING" then
+local newPingBranch = [=[    if kind == "PING" then
         -- Wi-Fi 100% nativo: evita borrado, pixelização e recorte de sprite.
         glyph.PingLayers = {}
         local centerX, centerY = 16, 27
@@ -115,7 +115,7 @@ local newPingBranch = [[    if kind == "PING" then
                 dot(centerX + extent, endpointY, weight)
             end
         end
-]]
+]=]
 
 source = replaceBetween(
     source,
@@ -128,7 +128,7 @@ source = replaceBetween(
 local updateStartMarker = "function UI.UpdatePingIcon(ping, instant)\n"
 local updateEndMarker = "\nfunction UI.CreateNavigationIcon(parent, kind, size)"
 
-local newUpdatePingIcon = [[function UI.UpdatePingIcon(ping, instant)
+local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
     local glyph = State.UI.PingIcon
     if not glyph or not glyph.Box.Parent or not glyph.PingLayers then return end
 
@@ -218,7 +218,7 @@ local newUpdatePingIcon = [[function UI.UpdatePingIcon(ping, instant)
         end
     end
 end
-]]
+]=]
 
 source = replaceBetween(
     source,
@@ -229,5 +229,5 @@ source = replaceBetween(
 )
 
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.5: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.6: " .. tostring(compileError))
 return compiled()
