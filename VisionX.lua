@@ -1,4 +1,4 @@
--- V35.3.14 — Wi‑Fi clean no estilo da referência, ping em cima, FPS embaixo, avatar sem corte.
+-- V35.3.15 — Wi‑Fi clean refinado com animação dinâmica por qualidade de conexão.
 -- Bootstrap do build completo V35.3.4 com patches visuais aplicados diretamente na interface original.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
@@ -24,7 +24,7 @@ end
 
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.14 — Wi‑Fi clean igual ao estilo da referência, ping em cima, FPS embaixo e avatar corrigido.",
+    "-- V35.3.15 — Wi‑Fi clean refinado com animação dinâmica por qualidade de conexão.",
     1
 )
 
@@ -60,6 +60,7 @@ local pingEndMarker =
 local newPingBranch = [=[    if kind == "PING" then
         navigationScale.Scale = 1
 
+        -- Ícone Wi‑Fi limpo: três arcos largos + ponto, sem recorte nas bordas.
         local iconSize = math.max(18, math.floor((tonumber(size) or 18) + .5))
         glyph.Box.Size = UDim2.fromOffset(iconSize, iconSize)
         glyph.PingLayers = {}
@@ -68,24 +69,24 @@ local newPingBranch = [=[    if kind == "PING" then
             return math.floor(v + .5)
         end
 
-        local centerX = px(iconSize * .50)
-        local arcCenterY = px(iconSize * .70)
-        local pointY = px(iconSize * .93)
+        local centerX = iconSize * .50
+        local arcCenterY = iconSize * .70
+        local pointY = iconSize * .82
 
         local radii = {
-            math.max(4, px(iconSize * .22)),
-            math.max(7, px(iconSize * .39)),
-            math.max(10, px(iconSize * .56)),
+            iconSize * .210,
+            iconSize * .340,
+            iconSize * .470,
         }
 
-        local thickness = math.max(2, px(iconSize * .11))
-        local pointSize = math.max(4, thickness + 1)
-        local extentRatio = .80
+        local thickness = math.max(2, iconSize * .105)
+        local pointSize = math.max(3.6, thickness * 1.55)
+        local extentRatio = .82
 
         for index = 0, 3 do
             local holder = Util.New("Frame", {
                 Name = ("SignalLayer_%d"):format(index),
-                Position = UDim2.fromOffset(0, 2),
+                Position = UDim2.fromOffset(0, 3),
                 Size = UDim2.fromOffset(iconSize, iconSize),
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
@@ -97,7 +98,8 @@ local newPingBranch = [=[    if kind == "PING" then
                 Ink = {},
                 Holder = holder,
                 BasePosition = UDim2.fromOffset(0, 0),
-                HiddenPosition = UDim2.fromOffset(0, 2),
+                LiftPosition = UDim2.fromOffset(0, -1),
+                HiddenPosition = UDim2.fromOffset(0, 3),
             }
 
             glyph.PingLayers[index + 1] = layer
@@ -105,16 +107,14 @@ local newPingBranch = [=[    if kind == "PING" then
             local function ink(object, colorProperty, alphaProperty)
                 glyph.Ink[#glyph.Ink + 1] = {object, colorProperty}
                 layer.Ink[#layer.Ink + 1] = {object, alphaProperty}
-                object[alphaProperty] = .86
+                object[alphaProperty] = .88
             end
 
-            local function dot(x, y, diameter)
-                diameter = math.max(2, px(diameter))
-
+            local function roundDot(x, y, diameter)
                 local object = Util.New("Frame", {
                     AnchorPoint = Vector2.new(.5, .5),
                     Position = UDim2.fromOffset(px(x), px(y)),
-                    Size = UDim2.fromOffset(diameter, diameter),
+                    Size = UDim2.fromOffset(px(diameter), px(diameter)),
                     BackgroundColor3 = Theme.Sub,
                     BorderSizePixel = 0,
                 }, holder)
@@ -128,25 +128,23 @@ local newPingBranch = [=[    if kind == "PING" then
             end
 
             if index == 0 then
-                dot(centerX, pointY, pointSize)
+                roundDot(centerX, pointY, pointSize)
             else
                 local radius = radii[index]
-                local weight = thickness
-                local extent = px(radius * extentRatio)
-                local rise = px(math.sqrt(math.max(0, radius * radius - extent * extent)))
+                local extent = radius * extentRatio
+                local rise = math.sqrt(math.max(0, radius * radius - extent * extent))
                 local endpointY = arcCenterY - rise
-                local padding = math.max(4, weight + 2)
+                local padding = math.ceil(thickness + 2)
+
+                local clipX = centerX - radius - padding
+                local clipY = arcCenterY - radius - padding
+                local clipW = radius * 2 + padding * 2
+                local clipH = radius - rise + padding + thickness + 1
 
                 local clip = Util.New("Frame", {
-                    Name = "CircularArcClip",
-                    Position = UDim2.fromOffset(
-                        centerX - radius - padding,
-                        arcCenterY - radius - padding
-                    ),
-                    Size = UDim2.fromOffset(
-                        radius * 2 + padding * 2,
-                        radius - rise + padding + weight + 1
-                    ),
+                    Name = "SignalArcClip",
+                    Position = UDim2.fromOffset(px(clipX), px(clipY)),
+                    Size = UDim2.fromOffset(px(clipW), px(clipH)),
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                     ClipsDescendants = true,
@@ -155,7 +153,7 @@ local newPingBranch = [=[    if kind == "PING" then
                 local ring = Util.New("Frame", {
                     Name = "SignalArc",
                     Position = UDim2.fromOffset(padding, padding),
-                    Size = UDim2.fromOffset(radius * 2, radius * 2),
+                    Size = UDim2.fromOffset(px(radius * 2), px(radius * 2)),
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                 }, clip)
@@ -164,7 +162,7 @@ local newPingBranch = [=[    if kind == "PING" then
                     CornerRadius = UDim.new(1, 0)
                 }, ring)
 
-                local stroke = Util.Stroke(ring, Theme.Sub, .86, weight)
+                local stroke = Util.Stroke(ring, Theme.Sub, .88, thickness)
 
                 pcall(function()
                     stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -174,14 +172,11 @@ local newPingBranch = [=[    if kind == "PING" then
                     stroke.LineJoinMode = Enum.LineJoinMode.Round
                 end)
 
-                pcall(function()
-                    stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center
-                end)
-
                 ink(stroke, "Color", "Transparency")
 
-                dot(centerX - extent, endpointY, weight)
-                dot(centerX + extent, endpointY, weight)
+                -- Pontas arredondadas para o mesmo acabamento da referência.
+                roundDot(centerX - extent, endpointY, thickness)
+                roundDot(centerX + extent, endpointY, thickness)
             end
         end
 ]=]
@@ -214,8 +209,36 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
     local wasKnown = glyph.SignalKnown == true
     local level = UI.PingSignalLevel(known and ping or nil, previous)
 
-    if not instant and previous == level and glyph.SignalKnown == known then
+    -- Uma onda discreta mantém o Wi‑Fi "vivo". Quanto pior o ping,
+    -- mais lenta fica a onda e menos arcos permanecem acesos.
+    local pulseInterval = 1.05
+    if known then
+        if ping > 250 then
+            pulseInterval = 2.20
+        elseif ping > 150 then
+            pulseInterval = 1.75
+        elseif ping > 80 then
+            pulseInterval = 1.35
+        end
+    end
+
+    local now = os.clock()
+    local sameState = previous == level and glyph.SignalKnown == known
+    local shouldPulse = (
+        known
+        and sameState
+        and not instant
+        and (now - (glyph.LastSignalPulse or 0)) >= pulseInterval
+    )
+
+    if not instant and sameState and not shouldPulse then
         return
+    end
+
+    if shouldPulse then
+        glyph.LastSignalPulse = now
+    elseif not sameState then
+        glyph.LastSignalPulse = now
     end
 
     glyph.SignalLevel = level
@@ -225,36 +248,38 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
     local generation = glyph.SignalGeneration
     local oldLevel = math.clamp(previous or 0, 0, 3)
 
-    local activeAlpha = .03
-    local inactiveAlpha = known and .86 or .93
-    local stepDelay = .05
-    local tweenTime = .16
+    local activeAlpha = .04
+    local inactiveAlpha = known and .84 or .92
+    local pulseAlpha = 0
+    local stepDelay = .055
+    local tweenTime = .17
 
-    local function stable(layer, active)
+    local function stopLayer(layer)
         Util.StopTween(layer.Holder)
+        for _, entry in ipairs(layer.Ink) do
+            Util.StopTween(entry[1])
+        end
+    end
+
+    local function setLayer(layer, active)
+        stopLayer(layer)
         layer.Holder.Position = active and layer.BasePosition or layer.HiddenPosition
 
         for _, entry in ipairs(layer.Ink) do
-            Util.StopTween(entry[1])
             entry[1][entry[2]] = active and activeAlpha or inactiveAlpha
         end
     end
 
-    local function animate(layer, active, delayTime)
-        local function paint()
+    local function transitionLayer(layer, active, delayTime)
+        task.delay(math.max(0, delayTime or 0), function()
             if not Runtime.Alive or not glyph.Box.Parent or glyph.SignalGeneration ~= generation then
                 return
             end
 
-            Util.StopTween(layer.Holder)
-
-            for _, entry in ipairs(layer.Ink) do
-                Util.StopTween(entry[1])
-            end
+            stopLayer(layer)
 
             if active then
                 layer.Holder.Position = layer.HiddenPosition
-
                 for _, entry in ipairs(layer.Ink) do
                     entry[1][entry[2]] = inactiveAlpha
                 end
@@ -279,13 +304,62 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
                     }, tweenTime, Enum.EasingStyle.Quad)
                 end
             end
+        end)
+    end
+
+    local function pulseLayer(layer, delayTime)
+        task.delay(delayTime, function()
+            if not Runtime.Alive or not glyph.Box.Parent or glyph.SignalGeneration ~= generation then
+                return
+            end
+
+            stopLayer(layer)
+            layer.Holder.Position = layer.BasePosition
+
+            Util.Tween(layer.Holder, {
+                Position = layer.LiftPosition
+            }, .10, Enum.EasingStyle.Quad)
+
+            for _, entry in ipairs(layer.Ink) do
+                Util.Tween(entry[1], {
+                    [entry[2]] = pulseAlpha
+                }, .10, Enum.EasingStyle.Quad)
+            end
+
+            task.delay(.11, function()
+                if not Runtime.Alive or not glyph.Box.Parent or glyph.SignalGeneration ~= generation then
+                    return
+                end
+
+                Util.Tween(layer.Holder, {
+                    Position = layer.BasePosition
+                }, .14, Enum.EasingStyle.Quad)
+
+                for _, entry in ipairs(layer.Ink) do
+                    Util.Tween(entry[1], {
+                        [entry[2]] = activeAlpha
+                    }, .14, Enum.EasingStyle.Quad)
+                end
+            end)
+        end)
+    end
+
+    if shouldPulse then
+        local rank = 0
+
+        for index, layer in ipairs(glyph.PingLayers) do
+            local arc = index - 1
+            local active = known and (arc == 0 or arc <= level)
+
+            if active then
+                pulseLayer(layer, rank * stepDelay)
+                rank += 1
+            else
+                setLayer(layer, false)
+            end
         end
 
-        if delayTime <= 0 then
-            paint()
-        else
-            task.delay(delayTime, paint)
-        end
+        return
     end
 
     for index, layer in ipairs(glyph.PingLayers) do
@@ -294,20 +368,15 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
         local newActive = known and (arc == 0 or arc <= level)
 
         if instant then
-            stable(layer, newActive)
+            setLayer(layer, newActive)
         elseif oldActive == newActive then
-            stable(layer, newActive)
+            setLayer(layer, newActive)
         elseif newActive then
-            local rank
-            if wasKnown then
-                rank = math.max(0, arc - oldLevel - 1)
-            else
-                rank = arc
-            end
-            animate(layer, true, rank * stepDelay)
+            local rank = wasKnown and math.max(0, arc - oldLevel - 1) or arc
+            transitionLayer(layer, true, rank * stepDelay)
         else
             local rank = math.max(0, oldLevel - arc)
-            animate(layer, false, rank * stepDelay)
+            transitionLayer(layer, false, rank * stepDelay)
         end
     end
 end
@@ -331,65 +400,65 @@ local metricsStartMarker =
 local metricsEndMarker =
     '\tlocal header = Util.New("Frame", {Name = "PageHeader"'
 
-local newMetricsBlock = [=[	local metrics = Util.New("Frame", {Name = "ConnectionMetrics", BackgroundTransparency = 1,
-		BorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), ClipsDescendants = true}, nav)
+local newMetricsBlock = [=[\tlocal metrics = Util.New("Frame", {Name = "ConnectionMetrics", BackgroundTransparency = 1,
+\t\tBorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), ClipsDescendants = true}, nav)
 
-	Util.New("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.BorderSoft,
-		BackgroundTransparency = .15, BorderSizePixel = 0}, metrics)
+\tUtil.New("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.BorderSoft,
+\t\tBackgroundTransparency = .15, BorderSizePixel = 0}, metrics)
 
-	local fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
-	local pingIcon = UI.CreateNavigationIcon(metrics, "PING", 18)
-	State.UI.PingIcon = pingIcon
+\tlocal fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
+\tlocal pingIcon = UI.CreateNavigationIcon(metrics, "PING", 18)
+\tState.UI.PingIcon = pingIcon
 
-	State.UI.FPSLabel.Parent = metrics
-	State.UI.PingLabel.Parent = metrics
+\tState.UI.FPSLabel.Parent = metrics
+\tState.UI.PingLabel.Parent = metrics
 
-	for _, label in ipairs({State.UI.FPSLabel, State.UI.PingLabel}) do
-		label.Font = Enum.Font.Gotham
-		label.TextXAlignment = Enum.TextXAlignment.Left
-	end
+\tfor _, label in ipairs({State.UI.FPSLabel, State.UI.PingLabel}) do
+\t\tlabel.Font = Enum.Font.Gotham
+\t\tlabel.TextXAlignment = Enum.TextXAlignment.Left
+\tend
 
-	local avatarShell = Util.New("Frame", {
-		Name = "LocalPlayerAvatarShell",
-		BackgroundColor3 = Theme.Surface3,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		ZIndex = 6,
-	}, metrics)
-	Util.Corner(avatarShell, 999)
-	Util.Stroke(avatarShell, Theme.Accent, .10, 2)
+\tlocal avatarShell = Util.New("Frame", {
+\t\tName = "LocalPlayerAvatarShell",
+\t\tBackgroundColor3 = Theme.Surface3,
+\t\tBorderSizePixel = 0,
+\t\tClipsDescendants = true,
+\t\tZIndex = 6,
+\t}, metrics)
+\tUtil.Corner(avatarShell, 999)
+\tUtil.Stroke(avatarShell, Theme.Accent, .10, 2)
 
-	local localAvatar = Util.New("ImageLabel", {
-		Name = "LocalPlayerAvatar",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Image = "",
-		ScaleType = Enum.ScaleType.Crop,
-		ZIndex = 7,
-	}, avatarShell)
+\tlocal localAvatar = Util.New("ImageLabel", {
+\t\tName = "LocalPlayerAvatar",
+\t\tSize = UDim2.fromScale(1, 1),
+\t\tBackgroundTransparency = 1,
+\t\tBorderSizePixel = 0,
+\t\tImage = "",
+\t\tScaleType = Enum.ScaleType.Crop,
+\t\tZIndex = 7,
+\t}, avatarShell)
 
-	UI.LoadPlayerThumbnail(localAvatar, S.LocalPlayer)
-	State.UI.LocalPlayerAvatar = localAvatar
+\tUI.LoadPlayerThumbnail(localAvatar, S.LocalPlayer)
+\tState.UI.LocalPlayerAvatar = localAvatar
 
-	local onlineDot = Util.New("Frame", {
-		Name = "LocalPlayerOnlineDot",
-		AnchorPoint = Vector2.new(.5, .5),
-		Size = UDim2.fromOffset(8, 8),
-		BackgroundColor3 = Theme.Success,
-		BorderSizePixel = 0,
-		ZIndex = 9,
-	}, metrics)
-	Util.Corner(onlineDot, 999)
-	Util.Stroke(onlineDot, Theme.BG, 0, 2)
+\tlocal onlineDot = Util.New("Frame", {
+\t\tName = "LocalPlayerOnlineDot",
+\t\tAnchorPoint = Vector2.new(.5, .5),
+\t\tSize = UDim2.fromOffset(8, 8),
+\t\tBackgroundColor3 = Theme.Success,
+\t\tBorderSizePixel = 0,
+\t\tZIndex = 9,
+\t}, metrics)
+\tUtil.Corner(onlineDot, 999)
+\tUtil.Stroke(onlineDot, Theme.BG, 0, 2)
 
-	local profileDivider = Util.New("Frame", {
-		Name = "LocalProfileDivider",
-		BackgroundColor3 = Theme.BorderSoft,
-		BackgroundTransparency = .40,
-		BorderSizePixel = 0,
-		ZIndex = 5,
-	}, metrics)
+\tlocal profileDivider = Util.New("Frame", {
+\t\tName = "LocalProfileDivider",
+\t\tBackgroundColor3 = Theme.BorderSoft,
+\t\tBackgroundTransparency = .40,
+\t\tBorderSizePixel = 0,
+\t\tZIndex = 5,
+\t}, metrics)
 
 ]=]
 
@@ -407,70 +476,70 @@ local metricsLayoutStart =
 local metricsLayoutEnd =
     '\t\tlocal contentWidth = w - navWidth - gap * 2\n'
 
-local newMetricsLayout = [=[		metrics.Position = UDim2.new(0, compact and 4 or 12, 1, -4)
-		metrics.Size = UDim2.new(1, compact and -8 or -24, 0, metricHeight)
+local newMetricsLayout = [=[\t\tmetrics.Position = UDim2.new(0, compact and 4 or 12, 1, -4)
+\t\tmetrics.Size = UDim2.new(1, compact and -8 or -24, 0, metricHeight)
 
-		local avatarSize = compact
-			and math.min(26, metricHeight - 10)
-			or math.min(math.max(28, math.floor(30 * math.min(scale, 1.10) + .5)), metricHeight - 10)
-		avatarSize = math.max(22, avatarSize)
+\t\tlocal avatarSize = compact
+\t\t\tand math.min(26, metricHeight - 10)
+\t\t\tor math.min(math.max(28, math.floor(30 * math.min(scale, 1.10) + .5)), metricHeight - 10)
+\t\tavatarSize = math.max(22, avatarSize)
 
-		avatarShell.Visible = true
-		avatarShell.AnchorPoint = Vector2.new(0, .5)
-		avatarShell.Position = UDim2.new(0, 1, .5, 0)
-		avatarShell.Size = UDim2.fromOffset(avatarSize, avatarSize)
+\t\tavatarShell.Visible = true
+\t\tavatarShell.AnchorPoint = Vector2.new(0, .5)
+\t\tavatarShell.Position = UDim2.new(0, 1, .5, 0)
+\t\tavatarShell.Size = UDim2.fromOffset(avatarSize, avatarSize)
 
-		onlineDot.Position = UDim2.new(
-			0,
-			avatarSize,
-			.5,
-			math.floor(avatarSize * .5 - 4)
-		)
-		onlineDot.Size = UDim2.fromOffset(compact and 7 or 8, compact and 7 or 8)
+\t\tonlineDot.Position = UDim2.new(
+\t\t\t0,
+\t\t\tavatarSize,
+\t\t\t.5,
+\t\t\tmath.floor(avatarSize * .5 - 4)
+\t\t)
+\t\tonlineDot.Size = UDim2.fromOffset(compact and 7 or 8, compact and 7 or 8)
 
-		profileDivider.Position = UDim2.new(
-			0,
-			avatarSize + 9,
-			.5,
-			-math.floor(math.min(metricHeight - 10, 32) * .5)
-		)
-		profileDivider.Size = UDim2.fromOffset(1, math.min(metricHeight - 10, 32))
+\t\tprofileDivider.Position = UDim2.new(
+\t\t\t0,
+\t\t\tavatarSize + 9,
+\t\t\t.5,
+\t\t\t-math.floor(math.min(metricHeight - 10, 32) * .5)
+\t\t)
+\t\tprofileDivider.Size = UDim2.fromOffset(1, math.min(metricHeight - 10, 32))
 
-		local statusX = avatarSize + 16
-		local fpsIconSize = 16
-		local pingIconSize = 18
+\t\tlocal statusX = avatarSize + 16
+\t\tlocal fpsIconSize = 16
+\t\tlocal pingIconSize = 18
 
-		for _, icon in ipairs({fpsIcon, pingIcon}) do
-			icon.Box.Visible = true
-			icon.Box.AnchorPoint = Vector2.new(0, .5)
-		end
+\t\tfor _, icon in ipairs({fpsIcon, pingIcon}) do
+\t\t\ticon.Box.Visible = true
+\t\t\ticon.Box.AnchorPoint = Vector2.new(0, .5)
+\t\tend
 
-		pingIcon.Box.Position = UDim2.new(0, statusX, .29, 0)
-		local pingScale = pingIcon.Box:FindFirstChildOfClass("UIScale")
-		if pingScale then
-			pingScale.Scale = 1
-		end
+\t\tpingIcon.Box.Position = UDim2.new(0, statusX, .29, 0)
+\t\tlocal pingScale = pingIcon.Box:FindFirstChildOfClass("UIScale")
+\t\tif pingScale then
+\t\t\tpingScale.Scale = 1
+\t\tend
 
-		fpsIcon.Box.Position = UDim2.new(0, statusX + 1, .72, 0)
-		local fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
-		if fpsScale then
-			fpsScale.Scale = fpsIconSize / 32
-		end
+\t\tfpsIcon.Box.Position = UDim2.new(0, statusX + 1, .72, 0)
+\t\tlocal fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
+\t\tif fpsScale then
+\t\t\tfpsScale.Scale = fpsIconSize / 32
+\t\tend
 
-		State.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
-		State.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
+\t\tState.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
+\t\tState.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
 
-		local pingTextX = statusX + pingIconSize + 5
-		local fpsTextX = statusX + fpsIconSize + 6
+\t\tlocal pingTextX = statusX + pingIconSize + 5
+\t\tlocal fpsTextX = statusX + fpsIconSize + 6
 
-		State.UI.PingLabel.Position = UDim2.new(0, pingTextX, .29, 0)
-		State.UI.FPSLabel.Position = UDim2.new(0, fpsTextX, .72, 0)
+\t\tState.UI.PingLabel.Position = UDim2.new(0, pingTextX, .29, 0)
+\t\tState.UI.FPSLabel.Position = UDim2.new(0, fpsTextX, .72, 0)
 
-		State.UI.PingLabel.Size = UDim2.new(1, -pingTextX, 0, 17)
-		State.UI.FPSLabel.Size = UDim2.new(1, -fpsTextX, 0, 17)
+\t\tState.UI.PingLabel.Size = UDim2.new(1, -pingTextX, 0, 17)
+\t\tState.UI.FPSLabel.Size = UDim2.new(1, -fpsTextX, 0, 17)
 
-		UI.SetReadableText(State.UI.PingLabel, compact and 7.5 or 8)
-		UI.SetReadableText(State.UI.FPSLabel, compact and 7.5 or 8)
+\t\tUI.SetReadableText(State.UI.PingLabel, compact and 7.5 or 8)
+\t\tUI.SetReadableText(State.UI.FPSLabel, compact and 7.5 or 8)
 ]=]
 
 source = replaceBetween(
@@ -482,5 +551,5 @@ source = replaceBetween(
 )
 
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.14: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.15: " .. tostring(compileError))
 return compiled()
