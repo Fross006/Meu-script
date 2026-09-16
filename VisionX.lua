@@ -19,7 +19,7 @@ local endAt = assert(
     "VisionX V35.3.16: fim do bloco Wi-Fi não encontrado."
 )
 
-local replacement = [=[local newPingBranch = [=[    if kind == "PING" then
+local replacement = [==[local newPingBranch = [=[    if kind == "PING" then
         navigationScale.Scale = 1
 
         -- Wi-Fi desenhado sem UIStroke circular/máscara.
@@ -105,7 +105,7 @@ local replacement = [=[local newPingBranch = [=[    if kind == "PING" then
                 end
             end
         end
-]=]
+]=]]==]
 
 source = string.sub(source, 1, startAt - 1)
     .. replacement
