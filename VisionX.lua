@@ -400,65 +400,65 @@ local metricsStartMarker =
 local metricsEndMarker =
     '\tlocal header = Util.New("Frame", {Name = "PageHeader"'
 
-local newMetricsBlock = [=[\tlocal metrics = Util.New("Frame", {Name = "ConnectionMetrics", BackgroundTransparency = 1,
-\t\tBorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), ClipsDescendants = true}, nav)
+local newMetricsBlock = [=[    local metrics = Util.New("Frame", {Name = "ConnectionMetrics", BackgroundTransparency = 1,
+        BorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), ClipsDescendants = true}, nav)
 
-\tUtil.New("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.BorderSoft,
-\t\tBackgroundTransparency = .15, BorderSizePixel = 0}, metrics)
+    Util.New("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.BorderSoft,
+        BackgroundTransparency = .15, BorderSizePixel = 0}, metrics)
 
-\tlocal fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
-\tlocal pingIcon = UI.CreateNavigationIcon(metrics, "PING", 18)
-\tState.UI.PingIcon = pingIcon
+    local fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
+    local pingIcon = UI.CreateNavigationIcon(metrics, "PING", 18)
+    State.UI.PingIcon = pingIcon
 
-\tState.UI.FPSLabel.Parent = metrics
-\tState.UI.PingLabel.Parent = metrics
+    State.UI.FPSLabel.Parent = metrics
+    State.UI.PingLabel.Parent = metrics
 
-\tfor _, label in ipairs({State.UI.FPSLabel, State.UI.PingLabel}) do
-\t\tlabel.Font = Enum.Font.Gotham
-\t\tlabel.TextXAlignment = Enum.TextXAlignment.Left
-\tend
+    for _, label in ipairs({State.UI.FPSLabel, State.UI.PingLabel}) do
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = Enum.TextXAlignment.Left
+    end
 
-\tlocal avatarShell = Util.New("Frame", {
-\t\tName = "LocalPlayerAvatarShell",
-\t\tBackgroundColor3 = Theme.Surface3,
-\t\tBorderSizePixel = 0,
-\t\tClipsDescendants = true,
-\t\tZIndex = 6,
-\t}, metrics)
-\tUtil.Corner(avatarShell, 999)
-\tUtil.Stroke(avatarShell, Theme.Accent, .10, 2)
+    local avatarShell = Util.New("Frame", {
+        Name = "LocalPlayerAvatarShell",
+        BackgroundColor3 = Theme.Surface3,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 6,
+    }, metrics)
+    Util.Corner(avatarShell, 999)
+    Util.Stroke(avatarShell, Theme.Accent, .10, 2)
 
-\tlocal localAvatar = Util.New("ImageLabel", {
-\t\tName = "LocalPlayerAvatar",
-\t\tSize = UDim2.fromScale(1, 1),
-\t\tBackgroundTransparency = 1,
-\t\tBorderSizePixel = 0,
-\t\tImage = "",
-\t\tScaleType = Enum.ScaleType.Crop,
-\t\tZIndex = 7,
-\t}, avatarShell)
+    local localAvatar = Util.New("ImageLabel", {
+        Name = "LocalPlayerAvatar",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Image = "",
+        ScaleType = Enum.ScaleType.Crop,
+        ZIndex = 7,
+    }, avatarShell)
 
-\tUI.LoadPlayerThumbnail(localAvatar, S.LocalPlayer)
-\tState.UI.LocalPlayerAvatar = localAvatar
+    UI.LoadPlayerThumbnail(localAvatar, S.LocalPlayer)
+    State.UI.LocalPlayerAvatar = localAvatar
 
-\tlocal onlineDot = Util.New("Frame", {
-\t\tName = "LocalPlayerOnlineDot",
-\t\tAnchorPoint = Vector2.new(.5, .5),
-\t\tSize = UDim2.fromOffset(8, 8),
-\t\tBackgroundColor3 = Theme.Success,
-\t\tBorderSizePixel = 0,
-\t\tZIndex = 9,
-\t}, metrics)
-\tUtil.Corner(onlineDot, 999)
-\tUtil.Stroke(onlineDot, Theme.BG, 0, 2)
+    local onlineDot = Util.New("Frame", {
+        Name = "LocalPlayerOnlineDot",
+        AnchorPoint = Vector2.new(.5, .5),
+        Size = UDim2.fromOffset(8, 8),
+        BackgroundColor3 = Theme.Success,
+        BorderSizePixel = 0,
+        ZIndex = 9,
+    }, metrics)
+    Util.Corner(onlineDot, 999)
+    Util.Stroke(onlineDot, Theme.BG, 0, 2)
 
-\tlocal profileDivider = Util.New("Frame", {
-\t\tName = "LocalProfileDivider",
-\t\tBackgroundColor3 = Theme.BorderSoft,
-\t\tBackgroundTransparency = .40,
-\t\tBorderSizePixel = 0,
-\t\tZIndex = 5,
-\t}, metrics)
+    local profileDivider = Util.New("Frame", {
+        Name = "LocalProfileDivider",
+        BackgroundColor3 = Theme.BorderSoft,
+        BackgroundTransparency = .40,
+        BorderSizePixel = 0,
+        ZIndex = 5,
+    }, metrics)
 
 ]=]
 
@@ -476,70 +476,70 @@ local metricsLayoutStart =
 local metricsLayoutEnd =
     '\t\tlocal contentWidth = w - navWidth - gap * 2\n'
 
-local newMetricsLayout = [=[\t\tmetrics.Position = UDim2.new(0, compact and 4 or 12, 1, -4)
-\t\tmetrics.Size = UDim2.new(1, compact and -8 or -24, 0, metricHeight)
+local newMetricsLayout = [=[        metrics.Position = UDim2.new(0, compact and 4 or 12, 1, -4)
+        metrics.Size = UDim2.new(1, compact and -8 or -24, 0, metricHeight)
 
-\t\tlocal avatarSize = compact
-\t\t\tand math.min(26, metricHeight - 10)
-\t\t\tor math.min(math.max(28, math.floor(30 * math.min(scale, 1.10) + .5)), metricHeight - 10)
-\t\tavatarSize = math.max(22, avatarSize)
+        local avatarSize = compact
+            and math.min(26, metricHeight - 10)
+            or math.min(math.max(28, math.floor(30 * math.min(scale, 1.10) + .5)), metricHeight - 10)
+        avatarSize = math.max(22, avatarSize)
 
-\t\tavatarShell.Visible = true
-\t\tavatarShell.AnchorPoint = Vector2.new(0, .5)
-\t\tavatarShell.Position = UDim2.new(0, 1, .5, 0)
-\t\tavatarShell.Size = UDim2.fromOffset(avatarSize, avatarSize)
+        avatarShell.Visible = true
+        avatarShell.AnchorPoint = Vector2.new(0, .5)
+        avatarShell.Position = UDim2.new(0, 1, .5, 0)
+        avatarShell.Size = UDim2.fromOffset(avatarSize, avatarSize)
 
-\t\tonlineDot.Position = UDim2.new(
-\t\t\t0,
-\t\t\tavatarSize,
-\t\t\t.5,
-\t\t\tmath.floor(avatarSize * .5 - 4)
-\t\t)
-\t\tonlineDot.Size = UDim2.fromOffset(compact and 7 or 8, compact and 7 or 8)
+        onlineDot.Position = UDim2.new(
+            0,
+            avatarSize,
+            .5,
+            math.floor(avatarSize * .5 - 4)
+        )
+        onlineDot.Size = UDim2.fromOffset(compact and 7 or 8, compact and 7 or 8)
 
-\t\tprofileDivider.Position = UDim2.new(
-\t\t\t0,
-\t\t\tavatarSize + 9,
-\t\t\t.5,
-\t\t\t-math.floor(math.min(metricHeight - 10, 32) * .5)
-\t\t)
-\t\tprofileDivider.Size = UDim2.fromOffset(1, math.min(metricHeight - 10, 32))
+        profileDivider.Position = UDim2.new(
+            0,
+            avatarSize + 9,
+            .5,
+            -math.floor(math.min(metricHeight - 10, 32) * .5)
+        )
+        profileDivider.Size = UDim2.fromOffset(1, math.min(metricHeight - 10, 32))
 
-\t\tlocal statusX = avatarSize + 16
-\t\tlocal fpsIconSize = 16
-\t\tlocal pingIconSize = 18
+        local statusX = avatarSize + 16
+        local fpsIconSize = 16
+        local pingIconSize = 18
 
-\t\tfor _, icon in ipairs({fpsIcon, pingIcon}) do
-\t\t\ticon.Box.Visible = true
-\t\t\ticon.Box.AnchorPoint = Vector2.new(0, .5)
-\t\tend
+        for _, icon in ipairs({fpsIcon, pingIcon}) do
+            icon.Box.Visible = true
+            icon.Box.AnchorPoint = Vector2.new(0, .5)
+        end
 
-\t\tpingIcon.Box.Position = UDim2.new(0, statusX, .29, 0)
-\t\tlocal pingScale = pingIcon.Box:FindFirstChildOfClass("UIScale")
-\t\tif pingScale then
-\t\t\tpingScale.Scale = 1
-\t\tend
+        pingIcon.Box.Position = UDim2.new(0, statusX, .29, 0)
+        local pingScale = pingIcon.Box:FindFirstChildOfClass("UIScale")
+        if pingScale then
+            pingScale.Scale = 1
+        end
 
-\t\tfpsIcon.Box.Position = UDim2.new(0, statusX + 1, .72, 0)
-\t\tlocal fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
-\t\tif fpsScale then
-\t\t\tfpsScale.Scale = fpsIconSize / 32
-\t\tend
+        fpsIcon.Box.Position = UDim2.new(0, statusX + 1, .72, 0)
+        local fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
+        if fpsScale then
+            fpsScale.Scale = fpsIconSize / 32
+        end
 
-\t\tState.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
-\t\tState.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
+        State.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
+        State.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
 
-\t\tlocal pingTextX = statusX + pingIconSize + 5
-\t\tlocal fpsTextX = statusX + fpsIconSize + 6
+        local pingTextX = statusX + pingIconSize + 5
+        local fpsTextX = statusX + fpsIconSize + 6
 
-\t\tState.UI.PingLabel.Position = UDim2.new(0, pingTextX, .29, 0)
-\t\tState.UI.FPSLabel.Position = UDim2.new(0, fpsTextX, .72, 0)
+        State.UI.PingLabel.Position = UDim2.new(0, pingTextX, .29, 0)
+        State.UI.FPSLabel.Position = UDim2.new(0, fpsTextX, .72, 0)
 
-\t\tState.UI.PingLabel.Size = UDim2.new(1, -pingTextX, 0, 17)
-\t\tState.UI.FPSLabel.Size = UDim2.new(1, -fpsTextX, 0, 17)
+        State.UI.PingLabel.Size = UDim2.new(1, -pingTextX, 0, 17)
+        State.UI.FPSLabel.Size = UDim2.new(1, -fpsTextX, 0, 17)
 
-\t\tUI.SetReadableText(State.UI.PingLabel, compact and 7.5 or 8)
-\t\tUI.SetReadableText(State.UI.FPSLabel, compact and 7.5 or 8)
+        UI.SetReadableText(State.UI.PingLabel, compact and 7.5 or 8)
+        UI.SetReadableText(State.UI.FPSLabel, compact and 7.5 or 8)
 ]=]
 
 source = replaceBetween(
