@@ -1,118 +1,81 @@
--- V35.3.16 — Wi‑Fi redesenhado sem máscara: arcos limpos, sem blocos ou recortes.
--- Mantém integralmente a V35.3.15 e troca somente o desenho do ícone de conexão.
+-- V35.3.17 — status limpo: somente ping em ms e FPS, sem ícones.
+-- Mantém o restante da interface e das funções sem alterações.
 
 local PREVIOUS_BUILD = "https://raw.githubusercontent.com/Fross006/Meu-script/2eec94fb61368f8b12ab0ae4a953c5c9aa492ed5/VisionX.lua"
 
 local source = game:HttpGet(PREVIOUS_BUILD)
-assert(type(source) == "string" and #source > 1000, "VisionX: falha ao carregar a V35.3.15.")
+assert(type(source) == "string" and #source > 1000, "VisionX: falha ao carregar o build-base.")
 
-local startMarker = 'local newPingBranch = [=[    if kind == "PING" then\n'
-local endMarker = '\n\nsource = replaceBetween(\n    source,\n    pingStartMarker,'
+local function replaceExact(text, oldText, newText, errorName)
+    local at = string.find(text, oldText, 1, true)
+    assert(at, "VisionX V35.3.17: patch não encontrado: " .. tostring(errorName))
+    return string.sub(text, 1, at - 1) .. newText .. string.sub(text, at + #oldText)
+end
 
-local startAt = assert(
-    string.find(source, startMarker, 1, true),
-    "VisionX V35.3.16: início do bloco Wi-Fi não encontrado."
+source = source:gsub(
+    "^%-%- V35%.3%.15[^\n]*",
+    "-- V35.3.17 — status limpo: somente ping em ms e FPS, sem ícones.",
+    1
 )
 
-local endAt = assert(
-    string.find(source, endMarker, startAt + #startMarker, true),
-    "VisionX V35.3.16: fim do bloco Wi-Fi não encontrado."
+-- Remove somente a criação dos ícones de ping/FPS.
+source = replaceExact(
+    source,
+    [[    local fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
+    local pingIcon = UI.CreateNavigationIcon(metrics, "PING", 18)
+    State.UI.PingIcon = pingIcon]],
+    [[    State.UI.PingIcon = nil]],
+    "criação dos ícones de status"
 )
 
-local replacement = [==[local newPingBranch = [=[    if kind == "PING" then
-        navigationScale.Scale = 1
+-- Mantém os dois textos no mesmo local, agora sem espaço reservado para ícones.
+source = replaceExact(
+    source,
+    [[        local statusX = avatarSize + 16
+        local fpsIconSize = 16
+        local pingIconSize = 18
 
-        -- Wi-Fi desenhado sem UIStroke circular/máscara.
-        -- Cada arco usa pequenos pontos sobrepostos, evitando o bloco semicircular
-        -- que aparecia em alguns executores/dispositivos.
-        local iconSize = math.max(18, math.floor((tonumber(size) or 18) + .5))
-        glyph.Box.Size = UDim2.fromOffset(iconSize, iconSize)
-        glyph.PingLayers = {}
-
-        local centerX = iconSize * .50
-        local centerY = iconSize * .76
-        local pointY = iconSize * .88
-        local thickness = math.max(1.7, iconSize * .095)
-        local pointSize = math.max(3.2, thickness * 1.65)
-
-        local radii = {
-            iconSize * .205,
-            iconSize * .330,
-            iconSize * .455,
-        }
-
-        local samples = {7, 10, 13}
-        local startAngle = math.rad(210)
-        local endAngle = math.rad(330)
-
-        for index = 0, 3 do
-            local holder = Util.New("Frame", {
-                Name = ("SignalLayer_%d"):format(index),
-                Position = UDim2.fromOffset(0, 3),
-                Size = UDim2.fromOffset(iconSize, iconSize),
-                BackgroundTransparency = 1,
-                BorderSizePixel = 0,
-            }, glyph.Box)
-
-            fallback[#fallback + 1] = holder
-
-            local layer = {
-                Ink = {},
-                Holder = holder,
-                BasePosition = UDim2.fromOffset(0, 0),
-                LiftPosition = UDim2.fromOffset(0, -1),
-                HiddenPosition = UDim2.fromOffset(0, 3),
-            }
-
-            glyph.PingLayers[index + 1] = layer
-
-            local function addDot(x, y, diameter)
-                local dot = Util.New("Frame", {
-                    AnchorPoint = Vector2.new(.5, .5),
-                    Position = UDim2.fromOffset(
-                        math.floor(x + .5),
-                        math.floor(y + .5)
-                    ),
-                    Size = UDim2.fromOffset(
-                        math.max(2, math.floor(diameter + .5)),
-                        math.max(2, math.floor(diameter + .5))
-                    ),
-                    BackgroundColor3 = Theme.Sub,
-                    BackgroundTransparency = .88,
-                    BorderSizePixel = 0,
-                }, holder)
-
-                Util.New("UICorner", {
-                    CornerRadius = UDim.new(1, 0)
-                }, dot)
-
-                glyph.Ink[#glyph.Ink + 1] = {dot, "BackgroundColor3"}
-                layer.Ink[#layer.Ink + 1] = {dot, "BackgroundTransparency"}
-            end
-
-            if index == 0 then
-                addDot(centerX, pointY, pointSize)
-            else
-                local radius = radii[index]
-                local count = samples[index]
-
-                for sample = 0, count - 1 do
-                    local t = sample / (count - 1)
-                    local angle = startAngle + (endAngle - startAngle) * t
-                    local x = centerX + math.cos(angle) * radius
-                    local y = centerY + math.sin(angle) * radius
-                    addDot(x, y, thickness)
-                end
-            end
+        for _, icon in ipairs({fpsIcon, pingIcon}) do
+            icon.Box.Visible = true
+            icon.Box.AnchorPoint = Vector2.new(0, .5)
         end
-]=]]==]
 
-source = string.sub(source, 1, startAt - 1)
-    .. replacement
-    .. string.sub(source, endAt)
+        pingIcon.Box.Position = UDim2.new(0, statusX, .29, 0)
+        local pingScale = pingIcon.Box:FindFirstChildOfClass("UIScale")
+        if pingScale then
+            pingScale.Scale = 1
+        end
 
-source = source:gsub("V35%.3%.15", "V35.3.16")
+        fpsIcon.Box.Position = UDim2.new(0, statusX + 1, .72, 0)
+        local fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
+        if fpsScale then
+            fpsScale.Scale = fpsIconSize / 32
+        end
 
-local compiled, compileError = loadstring(source, "VisionX_V35.3.16.lua")
-assert(compiled, "VisionX V35.3.16: " .. tostring(compileError))
+        State.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
+        State.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
+
+        local pingTextX = statusX + pingIconSize + 5
+        local fpsTextX = statusX + fpsIconSize + 6
+
+        State.UI.PingLabel.Position = UDim2.new(0, pingTextX, .29, 0)
+        State.UI.FPSLabel.Position = UDim2.new(0, fpsTextX, .72, 0)
+
+        State.UI.PingLabel.Size = UDim2.new(1, -pingTextX, 0, 17)
+        State.UI.FPSLabel.Size = UDim2.new(1, -fpsTextX, 0, 17)]],
+    [[        local statusX = avatarSize + 16
+
+        State.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
+        State.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
+
+        State.UI.PingLabel.Position = UDim2.new(0, statusX, .29, 0)
+        State.UI.FPSLabel.Position = UDim2.new(0, statusX, .72, 0)
+
+        State.UI.PingLabel.Size = UDim2.new(1, -statusX, 0, 17)
+        State.UI.FPSLabel.Size = UDim2.new(1, -statusX, 0, 17)]],
+    "layout dos ícones de status"
+)
+
+local compiled, compileError = loadstring(source, "VisionX.lua")
+assert(compiled, "VisionX V35.3.17: " .. tostring(compileError))
 return compiled()
