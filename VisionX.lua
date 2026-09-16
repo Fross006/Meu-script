@@ -1,5 +1,5 @@
--- V35.3.8 — Wi-Fi crisp: geometria em pixels inteiros, sem escala fracionada e com curvas mais limpas.
--- Bootstrap do build completo V35.3.4 com o patch visual V35.3.8 aplicado em memória.
+-- V35.3.9 — Wi-Fi crisp + perfil local compacto com FPS e ping dentro da barra lateral.
+-- Bootstrap do build completo V35.3.4 com os patches visuais V35.3.9 aplicados em memória.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
 
@@ -24,7 +24,7 @@ end
 
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.8 — Wi-Fi crisp com pixels inteiros e sem escala fracionada; demais funções preservadas.",
+    "-- V35.3.9 — Wi-Fi crisp + perfil local compacto; demais funções preservadas.",
     1
 )
 
@@ -54,7 +54,6 @@ local newPingBranch = [=[    if kind == "PING" then
             return math.floor(value + .5)
         end
 
-        -- Todas as medidas abaixo terminam em pixels inteiros.
         local centerX = px(iconSize * .50)
         local arcCenterY = px(iconSize * .75)
         local pointY = px(iconSize * .91)
@@ -106,7 +105,6 @@ local newPingBranch = [=[    if kind == "PING" then
             end
 
             if index == 0 then
-                -- Ponto central pequeno, perfeitamente alinhado e separado da primeira onda.
                 dot(centerX, pointY, pointSize)
             else
                 local radius = radii[index]
@@ -153,8 +151,6 @@ local newPingBranch = [=[    if kind == "PING" then
                 end)
 
                 ink(stroke, "Color", "Transparency")
-
-                -- Caps inteiros evitam pontas quadradas e mantêm ambos os lados idênticos.
                 dot(centerX - extent, endpointY, weight)
                 dot(centerX + extent, endpointY, weight)
             end
@@ -213,7 +209,6 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
             end
 
             if active then
-                -- Melhorou: ondas entram de baixo para cima, do centro para fora.
                 layer.Holder.Position = layer.HiddenPosition
                 for _, entry in ipairs(layer.Ink) do
                     entry[1][entry[2]] = inactiveAlpha
@@ -223,7 +218,6 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
                     Util.Tween(entry[1], {[entry[2]] = activeAlpha}, tweenTime, Enum.EasingStyle.Quad)
                 end
             else
-                -- Piorou: ondas descem e apagam de fora para dentro.
                 Util.Tween(layer.Holder, {Position = layer.HiddenPosition}, tweenTime, Enum.EasingStyle.Quad)
                 for _, entry in ipairs(layer.Ink) do
                     Util.Tween(entry[1], {[entry[2]] = inactiveAlpha}, tweenTime, Enum.EasingStyle.Quad)
@@ -271,6 +265,228 @@ source = replaceBetween(
     1
 )
 
+-- Injeta um rodapé compacto com a foto do jogador local. O patch localiza
+-- dinamicamente os textos de FPS e ping, então continua funcionando mesmo
+-- quando o usuário troca o formato do menu entre nomes/ícones e esquerda/direita.
+local initializationMarker = [=[--==============================================================
+-- INITIALIZATION — each check represents completed work, not a timer.
+--==============================================================]=]
+
+local profileFooterFunction = [=[function UI.InstallLocalProfileFooter()
+    if State.UI.ProfileFooter and State.UI.ProfileFooter.Parent then
+        return true
+    end
+
+    State.UI.ProfileFooterAttempts = (State.UI.ProfileFooterAttempts or 0) + 1
+    local attempt = State.UI.ProfileFooterAttempts
+    local main = State.UI.Main
+
+    if not main or not main.Parent or main.AbsoluteSize.X < 100 then
+        if attempt < 30 then
+            task.delay(.08, function()
+                if Runtime.Alive then UI.InstallLocalProfileFooter() end
+            end)
+        end
+        return false
+    end
+
+    local fpsLabel, pingLabel
+    for _, object in ipairs(main:GetDescendants()) do
+        if object:IsA("TextLabel") then
+            local text = tostring(object.Text or "")
+            if not fpsLabel and (string.match(text, "^%s*%d+%s*FPS%s*$") or string.find(text, "FPS", 1, true)) then
+                fpsLabel = object
+            end
+            if not pingLabel and (string.match(text, "^%s*%d+%s*ms%s*$") or string.find(text, " ms", 1, true)) then
+                pingLabel = object
+            end
+        end
+    end
+
+    if not fpsLabel or not pingLabel then
+        if attempt < 30 then
+            task.delay(.08, function()
+                if Runtime.Alive then UI.InstallLocalProfileFooter() end
+            end)
+        end
+        return false
+    end
+
+    -- Procura o menor contêiner que realmente contém os dois indicadores e
+    -- cuja largura ainda pertence à barra lateral, nunca ao painel central.
+    local host
+    local node = fpsLabel.Parent
+    while node and node ~= main do
+        if pingLabel:IsDescendantOf(node) then
+            local width = node.AbsoluteSize.X
+            local maxSidebarWidth = math.max(170, main.AbsoluteSize.X * .34)
+            if width > 0 and width <= maxSidebarWidth then
+                host = node
+                break
+            end
+        end
+        node = node.Parent
+    end
+
+    if not host then
+        if attempt < 30 then
+            task.delay(.08, function()
+                if Runtime.Alive then UI.InstallLocalProfileFooter() end
+            end)
+        end
+        return false
+    end
+
+    host.ClipsDescendants = false
+
+    local previous = host:FindFirstChild("VisionX_LocalProfileFooter")
+    if previous then previous:Destroy() end
+
+    local baseZ = math.max(fpsLabel.ZIndex, pingLabel.ZIndex) + 20
+    local footer = Util.New("Frame", {
+        Name = "VisionX_LocalProfileFooter",
+        AnchorPoint = Vector2.new(0, 1),
+        Position = UDim2.new(0, 0, 1, 0),
+        Size = UDim2.new(1, 0, 0, 52),
+        BackgroundColor3 = Theme.BG,
+        BackgroundTransparency = .02,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = baseZ,
+    }, host)
+    State.UI.ProfileFooter = footer
+    Util.Corner(footer, 15)
+    Util.Stroke(footer, Theme.BorderSoft, .72, 1)
+
+    local avatar = Util.New("ImageLabel", {
+        Name = "LocalPlayerAvatar",
+        Position = UDim2.fromOffset(5, 6),
+        Size = UDim2.fromOffset(40, 40),
+        BackgroundColor3 = Theme.Surface3,
+        BorderSizePixel = 0,
+        Image = "",
+        ScaleType = Enum.ScaleType.Crop,
+        ZIndex = baseZ + 2,
+    }, footer)
+    Util.Corner(avatar, 999)
+    Util.Stroke(avatar, Theme.Accent, .08, 2)
+    UI.LoadPlayerThumbnail(avatar, S.LocalPlayer)
+
+    local onlineDot = Util.New("Frame", {
+        Name = "OnlineDot",
+        AnchorPoint = Vector2.new(.5, .5),
+        Position = UDim2.fromOffset(41, 41),
+        Size = UDim2.fromOffset(9, 9),
+        BackgroundColor3 = Theme.Success,
+        BorderSizePixel = 0,
+        ZIndex = baseZ + 4,
+    }, footer)
+    Util.Corner(onlineDot, 999)
+    Util.Stroke(onlineDot, Theme.BG, 0, 2)
+
+    Util.New("Frame", {
+        Name = "ProfileDivider",
+        Position = UDim2.fromOffset(51, 8),
+        Size = UDim2.fromOffset(1, 36),
+        BackgroundColor3 = Theme.BorderSoft,
+        BackgroundTransparency = .35,
+        BorderSizePixel = 0,
+        ZIndex = baseZ + 1,
+    }, footer)
+
+    -- Monitor minimalista para o FPS.
+    local monitor = Util.New("Frame", {
+        Name = "FPSIcon",
+        Position = UDim2.fromOffset(59, 8),
+        Size = UDim2.fromOffset(14, 10),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = baseZ + 2,
+    }, footer)
+    Util.Corner(monitor, 2)
+    Util.Stroke(monitor, Theme.Sub, .12, 1.4)
+    Util.New("Frame", {
+        Position = UDim2.fromOffset(5, 11),
+        Size = UDim2.fromOffset(4, 1),
+        BackgroundColor3 = Theme.Sub,
+        BorderSizePixel = 0,
+        ZIndex = baseZ + 2,
+    }, monitor)
+
+    local fpsText = Util.New("TextLabel", {
+        Name = "FPSValue",
+        Position = UDim2.fromOffset(79, 4),
+        Size = UDim2.new(1, -84, 0, 20),
+        BackgroundTransparency = 1,
+        Text = fpsLabel.Text,
+        TextColor3 = Theme.Sub,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 8,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = baseZ + 2,
+    }, footer)
+
+    local pingGlyph = UI.CreateSharpNavigationIcon(footer, "PING", 16)
+    pingGlyph.Box.Name = "ProfilePingIcon"
+    pingGlyph.Box.Position = UDim2.fromOffset(58, 27)
+    pingGlyph.Box.BackgroundTransparency = 1
+    pingGlyph.Box.ZIndex = baseZ + 2
+    for _, descendant in ipairs(pingGlyph.Box:GetDescendants()) do
+        if descendant:IsA("GuiObject") then descendant.ZIndex = baseZ + 2 end
+    end
+
+    local pingText = Util.New("TextLabel", {
+        Name = "PingValue",
+        Position = UDim2.fromOffset(79, 25),
+        Size = UDim2.new(1, -84, 0, 20),
+        BackgroundTransparency = 1,
+        Text = pingLabel.Text,
+        TextColor3 = Theme.Sub,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 8,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = baseZ + 2,
+    }, footer)
+
+    -- O painel novo cobre o conjunto antigo, mas mantemos os rótulos originais
+    -- vivos para que os loops existentes continuem atualizando seus valores.
+    Runtime.Track(fpsLabel:GetPropertyChangedSignal("Text"):Connect(function()
+        if fpsText.Parent then fpsText.Text = fpsLabel.Text end
+    end))
+    Runtime.Track(pingLabel:GetPropertyChangedSignal("Text"):Connect(function()
+        if pingText.Parent then pingText.Text = pingLabel.Text end
+    end))
+
+    State.UI.ProfileFooterOriginalPingIcon = State.UI.PingIcon
+    State.UI.PingIcon = pingGlyph
+    UI.UpdatePingIcon(State.UI.LastPingValue, true)
+
+    return true
+end
+
+]=]
+
+source = replaceExact(
+    source,
+    initializationMarker,
+    profileFooterFunction .. initializationMarker,
+    1,
+    "marcador de inicialização do perfil"
+)
+
+local oldNavigationStep = '\t\tLoading.Step("Ligando a navegação",BuildNavigation)\n'
+local newNavigationStep = oldNavigationStep
+    .. '\t\tLoading.Step("Montando o perfil local",UI.InstallLocalProfileFooter)\n'
+source = replaceExact(
+    source,
+    oldNavigationStep,
+    newNavigationStep,
+    1,
+    "etapa de navegação para o perfil local"
+)
+
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.8: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.9: " .. tostring(compileError))
 return compiled()
