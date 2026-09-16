@@ -1,5 +1,5 @@
--- V35.3.9 — Wi-Fi crisp + perfil local compacto com FPS e ping dentro da barra lateral.
--- Bootstrap do build completo V35.3.4 com os patches visuais V35.3.9 aplicados em memória.
+-- V35.3.10 — Wi-Fi crisp + perfil local compacto, sem alterar a contagem do carregamento.
+-- Bootstrap do build completo V35.3.4 com os patches visuais V35.3.10 aplicados em memória.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
 
@@ -24,7 +24,7 @@ end
 
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.9 — Wi-Fi crisp + perfil local compacto; demais funções preservadas.",
+    "-- V35.3.10 — Wi-Fi crisp + perfil local compacto; demais funções preservadas.",
     1
 )
 
@@ -266,8 +266,7 @@ source = replaceBetween(
 )
 
 -- Injeta um rodapé compacto com a foto do jogador local. O patch localiza
--- dinamicamente os textos de FPS e ping, então continua funcionando mesmo
--- quando o usuário troca o formato do menu entre nomes/ícones e esquerda/direita.
+-- dinamicamente os textos de FPS e ping, mantendo o bloco preso à barra lateral.
 local initializationMarker = [=[--==============================================================
 -- INITIALIZATION — each check represents completed work, not a timer.
 --==============================================================]=]
@@ -312,8 +311,6 @@ local profileFooterFunction = [=[function UI.InstallLocalProfileFooter()
         return false
     end
 
-    -- Procura o menor contêiner que realmente contém os dois indicadores e
-    -- cuja largura ainda pertence à barra lateral, nunca ao painel central.
     local host
     local node = fpsLabel.Parent
     while node and node ~= main do
@@ -394,7 +391,6 @@ local profileFooterFunction = [=[function UI.InstallLocalProfileFooter()
         ZIndex = baseZ + 1,
     }, footer)
 
-    -- Monitor minimalista para o FPS.
     local monitor = Util.New("Frame", {
         Name = "FPSIcon",
         Position = UDim2.fromOffset(59, 8),
@@ -450,8 +446,6 @@ local profileFooterFunction = [=[function UI.InstallLocalProfileFooter()
         ZIndex = baseZ + 2,
     }, footer)
 
-    -- O painel novo cobre o conjunto antigo, mas mantemos os rótulos originais
-    -- vivos para que os loops existentes continuem atualizando seus valores.
     Runtime.Track(fpsLabel:GetPropertyChangedSignal("Text"):Connect(function()
         if fpsText.Parent then fpsText.Text = fpsLabel.Text end
     end))
@@ -476,17 +470,29 @@ source = replaceExact(
     "marcador de inicialização do perfil"
 )
 
+-- IMPORTANTE: não adiciona um Loading.Step novo. O loader do V35 usa uma
+-- quantidade fixa de tarefas; adicionar uma etapa causa "Tarefas extras na inicialização".
+-- O perfil é agendado dentro da etapa de navegação já existente.
 local oldNavigationStep = '\t\tLoading.Step("Ligando a navegação",BuildNavigation)\n'
-local newNavigationStep = oldNavigationStep
-    .. '\t\tLoading.Step("Montando o perfil local",UI.InstallLocalProfileFooter)\n'
+local newNavigationStep = [=[		Loading.Step("Ligando a navegação",function()
+			BuildNavigation()
+			task.defer(function()
+				if not Runtime.Alive then return end
+				local ok, problem = pcall(UI.InstallLocalProfileFooter)
+				if not ok then
+					State.LastRuntimeError = string.sub("Perfil local: " .. tostring(problem), 1, 240)
+				end
+			end)
+		end)
+]=]
 source = replaceExact(
     source,
     oldNavigationStep,
     newNavigationStep,
     1,
-    "etapa de navegação para o perfil local"
+    "injeção segura do perfil local"
 )
 
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.9: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.10: " .. tostring(compileError))
 return compiled()
