@@ -1,4 +1,4 @@
--- V35.3.11 — perfil local integrado sem substituir FPS/ping; Wi-Fi crisp preservado.
+-- V35.3.13 — internet em cima, FPS embaixo, avatar sem corte e Wi-Fi crisp corrigido.
 -- Bootstrap do build completo V35.3.4 com patches visuais aplicados diretamente na interface original.
 
 local BASE_URL = "https://raw.githubusercontent.com/Fross006/Meu-script/09152fc9f5e7791381e4b955856f5431b987c700/VisionX.lua"
@@ -24,7 +24,7 @@ end
 
 source = source:gsub(
     "^%-%- V35%.3%.4[^\n]*",
-    "-- V35.3.11 — perfil local integrado, FPS/ping originais preservados e Wi-Fi crisp.",
+    "-- V35.3.13 — internet em cima, FPS embaixo, avatar sem corte e Wi-Fi crisp corrigido.",
     1
 )
 
@@ -45,7 +45,7 @@ local pingStartMarker = '    if kind == "PING" then\n'
 local pingEndMarker = '    else\n        if kind == "JOGADORES" or kind == "ESP" then'
 
 local newPingBranch = [=[    if kind == "PING" then
-        -- Wi-Fi nativo desenhado no tamanho final, sem reamostragem fracionada.
+        -- Desenha o Wi-Fi já no tamanho final. Sem UIScale fracionário e sem sprite borrado.
         navigationScale.Scale = 1
 
         local iconSize = math.max(16, math.floor((tonumber(size) or 32) + .5))
@@ -57,21 +57,21 @@ local newPingBranch = [=[    if kind == "PING" then
         end
 
         local centerX = px(iconSize * .50)
-        local arcCenterY = px(iconSize * .75)
+        local arcCenterY = px(iconSize * 1.00)
         local pointY = px(iconSize * .91)
         local radii = {
-            math.max(4, px(iconSize * .19)),
-            math.max(7, px(iconSize * .35)),
-            math.max(10, px(iconSize * .50)),
+            math.max(3, px(iconSize * .22)),
+            math.max(5, px(iconSize * .34)),
+            math.max(7, px(iconSize * .46)),
         }
-        local thickness = math.max(2, px(iconSize * .065))
+        local thickness = math.max(2, px(iconSize * .075))
         local pointSize = math.max(3, thickness + 1)
-        local extentRatio = .78
+        local extentRatio = .76
 
         for index = 0, 3 do
             local holder = Util.New("Frame", {
                 Name = ("SignalLayer_%d"):format(index),
-                Position = UDim2.fromOffset(0, 2),
+                Position = UDim2.fromOffset(0, 1),
                 Size = UDim2.fromOffset(iconSize, iconSize),
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
@@ -110,11 +110,10 @@ local newPingBranch = [=[    if kind == "PING" then
                 dot(centerX, pointY, pointSize)
             else
                 local radius = radii[index]
-                local weight = thickness
                 local extent = px(radius * extentRatio)
                 local rise = px(math.sqrt(math.max(0, radius * radius - extent * extent)))
                 local endpointY = arcCenterY - rise
-                local padding = math.max(4, thickness + 2)
+                local padding = thickness + 3
 
                 local clip = Util.New("Frame", {
                     Name = "CircularArcClip",
@@ -138,23 +137,17 @@ local newPingBranch = [=[    if kind == "PING" then
                     BackgroundTransparency = 1,
                     BorderSizePixel = 0,
                 }, clip)
-
                 Util.New("UICorner", {CornerRadius = UDim.new(1, 0)}, ring)
-                local stroke = Util.Stroke(ring, Theme.Sub, .86, weight)
 
-                pcall(function()
-                    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                end)
-                pcall(function()
-                    stroke.LineJoinMode = Enum.LineJoinMode.Round
-                end)
-                pcall(function()
-                    stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center
-                end)
-
+                local stroke = Util.Stroke(ring, Theme.Sub, .86, thickness)
+                pcall(function() stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border end)
+                pcall(function() stroke.LineJoinMode = Enum.LineJoinMode.Round end)
+                pcall(function() stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center end)
                 ink(stroke, "Color", "Transparency")
-                dot(centerX - extent, endpointY, weight)
-                dot(centerX + extent, endpointY, weight)
+
+                -- Caps redondos e simétricos nas pontas de cada onda.
+                dot(centerX - extent, endpointY, thickness)
+                dot(centerX + extent, endpointY, thickness)
             end
         end
 ]=]
@@ -227,11 +220,7 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
             end
         end
 
-        if delayTime <= 0 then
-            paint()
-        else
-            task.delay(delayTime, paint)
-        end
+        if delayTime <= 0 then paint() else task.delay(delayTime, paint) end
     end
 
     for index, layer in ipairs(glyph.PingLayers) do
@@ -244,12 +233,7 @@ local newUpdatePingIcon = [=[function UI.UpdatePingIcon(ping, instant)
         elseif oldActive == newActive then
             stable(layer, newActive)
         elseif newActive then
-            local rank
-            if wasKnown then
-                rank = math.max(0, arc - oldLevel - 1)
-            else
-                rank = arc
-            end
+            local rank = wasKnown and math.max(0, arc - oldLevel - 1) or arc
             animate(layer, true, rank * stepDelay)
         else
             local rank = math.max(0, oldLevel - arc)
@@ -268,23 +252,20 @@ source = replaceBetween(
 )
 
 --==============================================================
--- PERFIL LOCAL INTEGRADO À ÁREA ORIGINAL DE FPS/PING
+-- PERFIL LOCAL + MÉTRICAS ORIGINAIS
 --==============================================================
 
--- Em vez de cobrir ou substituir os indicadores existentes, recriamos apenas
--- o pequeno bloco ConnectionMetrics adicionando o avatar ao lado dos mesmos
--- fpsIcon/pingIcon e dos mesmos FPSLabel/PingLabel do build original.
 local metricsStartMarker = '\tlocal metrics = Util.New("Frame", {Name = "ConnectionMetrics"'
 local metricsEndMarker = '\tlocal header = Util.New("Frame", {Name = "PageHeader"'
 
 local newMetricsBlock = [=[	local metrics = Util.New("Frame", {Name = "ConnectionMetrics", BackgroundTransparency = 1,
-		BorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), ClipsDescendants = true}, nav)
+		BorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), ClipsDescendants = false}, nav)
 	Util.New("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.BorderSoft,
 		BackgroundTransparency = .15, BorderSizePixel = 0}, metrics)
 
-	-- Mantém os dois ícones originais. Só o PING usa o desenho crisp do patch.
+	-- Mantém os indicadores originais; apenas reorganiza a ordem visual.
 	local fpsIcon = UI.CreateNavigationIcon(metrics, "FPS", 13)
-	local pingIcon = UI.CreateNavigationIcon(metrics, "PING", 16)
+	local pingIcon = UI.CreateNavigationIcon(metrics, "PING", 18)
 	State.UI.PingIcon = pingIcon
 	State.UI.FPSLabel.Parent = metrics
 	State.UI.PingLabel.Parent = metrics
@@ -293,17 +274,29 @@ local newMetricsBlock = [=[	local metrics = Util.New("Frame", {Name = "Connectio
 		label.TextXAlignment = Enum.TextXAlignment.Left
 	end
 
-	-- Avatar pequeno, integrado ao mesmo rodapé. Não substitui nem duplica métricas.
+	local avatarShell = Util.New("Frame", {
+		Name = "LocalPlayerAvatarShell",
+		BackgroundColor3 = Theme.Surface3,
+		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
+		ClipsDescendants = false,
+		ZIndex = 6,
+	}, metrics)
+	Util.Corner(avatarShell, 999)
+	Util.Stroke(avatarShell, Theme.Accent, .10, 2)
+
 	local localAvatar = Util.New("ImageLabel", {
 		Name = "LocalPlayerAvatar",
-		BackgroundColor3 = Theme.Surface3,
+		AnchorPoint = Vector2.new(.5, .5),
+		Position = UDim2.fromScale(.5, .5),
+		Size = UDim2.new(1, -4, 1, -4),
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Image = "",
 		ScaleType = Enum.ScaleType.Crop,
-		ZIndex = 6,
-	}, metrics)
+		ZIndex = 7,
+	}, avatarShell)
 	Util.Corner(localAvatar, 999)
-	Util.Stroke(localAvatar, Theme.Accent, .12, 2)
 	UI.LoadPlayerThumbnail(localAvatar, S.LocalPlayer)
 	State.UI.LocalPlayerAvatar = localAvatar
 
@@ -313,7 +306,7 @@ local newMetricsBlock = [=[	local metrics = Util.New("Frame", {Name = "Connectio
 		Size = UDim2.fromOffset(8, 8),
 		BackgroundColor3 = Theme.Success,
 		BorderSizePixel = 0,
-		ZIndex = 8,
+		ZIndex = 9,
 	}, metrics)
 	Util.Corner(onlineDot, 999)
 	Util.Stroke(onlineDot, Theme.BG, 0, 2)
@@ -336,57 +329,64 @@ source = replaceBetween(
     1
 )
 
--- O layout original colocava FPS e ping lado a lado. Com a foto, os dois ficam
--- em duas linhas compactas dentro da própria sidebar, sem invadir o centro.
 local metricsLayoutStart = '\t\tmetrics.Position = UDim2.new(0, compact and 4 or 12, 1, -4)\n'
 local metricsLayoutEnd = '\t\tlocal contentWidth = w - navWidth - gap * 2\n'
 
 local newMetricsLayout = [=[		metrics.Position = UDim2.new(0, compact and 4 or 12, 1, -4)
 		metrics.Size = UDim2.new(1, compact and -8 or -24, 0, metricHeight)
 
-		local avatarSize = compact and 28 or math.max(30, math.floor(32 * math.min(scale, 1.15) + .5))
-		localAvatar.Visible = true
-		localAvatar.AnchorPoint = Vector2.new(0, .5)
-		localAvatar.Position = UDim2.new(0, 0, .5, 0)
-		localAvatar.Size = UDim2.fromOffset(avatarSize, avatarSize)
+		-- O avatar nunca pode encostar nas bordas do ConnectionMetrics.
+		local avatarSize = compact
+			and math.min(26, metricHeight - 10)
+			or math.min(math.max(28, math.floor(30 * math.min(scale, 1.10) + .5)), metricHeight - 10)
+		avatarSize = math.max(22, avatarSize)
+
+		avatarShell.Visible = true
+		avatarShell.AnchorPoint = Vector2.new(0, .5)
+		avatarShell.Position = UDim2.new(0, 1, .5, 0)
+		avatarShell.Size = UDim2.fromOffset(avatarSize, avatarSize)
 
 		onlineDot.Position = UDim2.new(
 			0,
-			avatarSize - 2,
+			avatarSize - 1,
 			.5,
-			math.floor(avatarSize * .5 - 3)
+			math.floor(avatarSize * .5 - 4)
 		)
 		onlineDot.Size = UDim2.fromOffset(compact and 7 or 8, compact and 7 or 8)
 
-		profileDivider.Position = UDim2.new(0, avatarSize + 7, .5, -math.floor(math.min(metricHeight - 8, 34) * .5))
-		profileDivider.Size = UDim2.fromOffset(1, math.min(metricHeight - 8, 34))
+		profileDivider.Position = UDim2.new(0, avatarSize + 9, .5, -math.floor(math.min(metricHeight - 10, 32) * .5))
+		profileDivider.Size = UDim2.fromOffset(1, math.min(metricHeight - 10, 32))
 
-		local statusX = avatarSize + 14
-		local metricIconSize = 16
+		local statusX = avatarSize + 16
+		local fpsIconSize = 16
+		local pingIconSize = 18
 
 		for _, icon in ipairs({fpsIcon, pingIcon}) do
 			icon.Box.Visible = true
 			icon.Box.AnchorPoint = Vector2.new(0, .5)
 		end
 
-		-- FPS mantém o ícone original; PING mantém o Wi-Fi crisp em tamanho nativo.
-		fpsIcon.Box.Position = UDim2.new(0, statusX, .30, 0)
-		pingIcon.Box.Position = UDim2.new(0, statusX, .72, 0)
-
-		local fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
-		if fpsScale then fpsScale.Scale = metricIconSize / 32 end
+		-- INTERNET EM CIMA.
+		pingIcon.Box.Position = UDim2.new(0, statusX, .29, 0)
 		local pingScale = pingIcon.Box:FindFirstChildOfClass("UIScale")
 		if pingScale then pingScale.Scale = 1 end
 
-		local textX = statusX + metricIconSize + 5
-		State.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
+		-- FPS EMBAIXO.
+		fpsIcon.Box.Position = UDim2.new(0, statusX + 1, .72, 0)
+		local fpsScale = fpsIcon.Box:FindFirstChildOfClass("UIScale")
+		if fpsScale then fpsScale.Scale = fpsIconSize / 32 end
+
 		State.UI.PingLabel.AnchorPoint = Vector2.new(0, .5)
-		State.UI.FPSLabel.Position = UDim2.new(0, textX, .30, 0)
-		State.UI.PingLabel.Position = UDim2.new(0, textX, .72, 0)
-		State.UI.FPSLabel.Size = UDim2.new(1, -textX, 0, 17)
-		State.UI.PingLabel.Size = UDim2.new(1, -textX, 0, 17)
-		UI.SetReadableText(State.UI.FPSLabel, compact and 7.5 or 8)
+		State.UI.FPSLabel.AnchorPoint = Vector2.new(0, .5)
+
+		local pingTextX = statusX + pingIconSize + 5
+		local fpsTextX = statusX + fpsIconSize + 6
+		State.UI.PingLabel.Position = UDim2.new(0, pingTextX, .29, 0)
+		State.UI.FPSLabel.Position = UDim2.new(0, fpsTextX, .72, 0)
+		State.UI.PingLabel.Size = UDim2.new(1, -pingTextX, 0, 17)
+		State.UI.FPSLabel.Size = UDim2.new(1, -fpsTextX, 0, 17)
 		UI.SetReadableText(State.UI.PingLabel, compact and 7.5 or 8)
+		UI.SetReadableText(State.UI.FPSLabel, compact and 7.5 or 8)
 ]=]
 
 source = replaceBetween(
@@ -398,5 +398,5 @@ source = replaceBetween(
 )
 
 local compiled, compileError = loadstring(source, "VisionX.lua")
-assert(compiled, "VisionX V35.3.11: " .. tostring(compileError))
+assert(compiled, "VisionX V35.3.13: " .. tostring(compileError))
 return compiled()
