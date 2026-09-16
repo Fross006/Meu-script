@@ -7,7 +7,7 @@ local source = game:HttpGet(PREVIOUS_BUILD)
 assert(type(source) == "string" and #source > 1000, "VisionX: falha ao carregar a V35.3.15.")
 
 local startMarker = 'local newPingBranch = [=[    if kind == "PING" then\n'
-local endMarker = '\n]=]\n\nsource = replaceBetween(\n    source,\n    pingStartMarker,'
+local endMarker = '\n\nsource = replaceBetween(\n    source,\n    pingStartMarker,'
 
 local startAt = assert(
     string.find(source, startMarker, 1, true),
