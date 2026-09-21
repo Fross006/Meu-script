@@ -1,4 +1,4 @@
--- V35.3.18 — retrato nítido, perfil responsivo e recuperação das miniaturas.
+-- V35.3.19 — foto do jogador com carregamento direto e nome no cartão do perfil.
 -- Toque no valor para digitar ou use + / − para ajustar uma unidade.
 -- Limites, valores salvos e callbacks das opções preservados.
 -- Direita escolhe o próximo alvo à direita; Inverter gesto muda o sentido.
@@ -9553,6 +9553,12 @@ function UI.CreateLocalPlayerProfile(nav, main)
 	}, metrics)
 	Util.Corner(card, 12)
 	Util.Stroke(card, Theme.BorderSoft, .65, 1)
+	local nameLabel = Util.New("TextLabel", {
+		Name = "LocalPlayerName", BackgroundTransparency = 1, BorderSizePixel = 0,
+		Text = "", Font = Enum.Font.GothamMedium, TextColor3 = Theme.Text,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center,
+		TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, RichText = false, ZIndex = 8,
+	}, card)
 	local avatar = Util.New("TextButton", {
 		Name = "LocalPlayerAvatarShell", BackgroundColor3 = Theme.Surface2,
 		BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 7,
@@ -9577,8 +9583,8 @@ function UI.CreateLocalPlayerProfile(nav, main)
 	Util.Corner(shoulders, 999)
 	local photo = Util.New("ImageLabel", {
 		Name = "LocalPlayerAvatar", Position = UDim2.fromOffset(3, 3), Size = UDim2.new(1, -6, 1, -6),
-		BackgroundTransparency = 1, BorderSizePixel = 0, Image = "", ImageTransparency = 1,
-		ScaleType = Enum.ScaleType.Fit, Visible = false, ZIndex = 9,
+		BackgroundTransparency = 1, BorderSizePixel = 0, Image = "", ImageTransparency = 0,
+		ScaleType = Enum.ScaleType.Fit, Visible = true, ZIndex = 9,
 	}, avatar)
 	Util.Corner(photo, 999)
 	local presence = Util.New("Frame", {
@@ -9604,65 +9610,92 @@ function UI.CreateLocalPlayerProfile(nav, main)
 	State.UI.FPSLabel.TextColor3 = Theme.Sub
 	local view = {
 		Root = metrics, Card = card, Avatar = avatar, Photo = photo, Placeholder = placeholder,
-		Presence = presence, Ping = State.UI.PingLabel, FPS = State.UI.FPSLabel, LastRequest = -math.huge,
+		Presence = presence, NameLabel = nameLabel, Ping = State.UI.PingLabel, FPS = State.UI.FPSLabel,
+		LastRequest = -math.huge, RequestId = 0,
 	}
 	State.UI.LocalPlayerAvatar, State.UI.LocalPlayerProfile = photo, view
+	State.UI.LocalPlayerName = nameLabel
 	local function alive()
 		return Runtime.Alive and not view.Destroyed and metrics.Parent ~= nil and photo.Parent ~= nil
 			and S.LocalPlayer.Parent == S.Players
 	end
+	local function updateName()
+		if not alive() then return end
+		local displayName = S.LocalPlayer.DisplayName
+		nameLabel.Text = type(displayName) == "string" and displayName ~= "" and displayName or S.LocalPlayer.Name
+	end
+	local function invalidatePending()
+		photo:SetAttribute("AAPThumbnailGeneration", (photo:GetAttribute("AAPThumbnailGeneration") or 0) + 1)
+	end
 	local function reveal()
 		if not alive() then return end
-		local contentReady = photo:GetAttribute("AAPThumbnailReady") == true
-			and photo:GetAttribute("AAPThumbnailUserId") == S.LocalPlayer.UserId
-			and photo:GetAttribute("AAPThumbnailContent") == photo.Image
-			and photo.Image ~= ""
-		local ready = contentReady and photo.IsLoaded
+		local content = photo.Image
+		local ready = content ~= "" and (photo.IsLoaded or view.LoadedContent == content)
 		placeholder.Visible = not ready
 		if ready then
-			photo.Visible = true
-			if view.ShownImage ~= photo.Image then
-				view.ShownImage = photo.Image
-				photo.ImageTransparency = 1
-				Util.Tween(photo, {ImageTransparency = 0}, .18)
+			if view.ShownImage ~= content then
+				view.ShownImage, view.LoadedContent = content, content
+				invalidatePending()
 			end
 		else
 			view.ShownImage = nil
-			Util.StopTween(photo)
-			photo.Visible = false
-			photo.ImageTransparency = 1
 		end
-		-- Explicitly fetch hidden artwork; it must not depend on the renderer drawing it first.
-		if contentReady and not photo.IsLoaded and view.Preloading ~= photo.Image then
-			local content = photo.Image
+		-- Keep the ImageLabel drawable from the start. Loading signals only retire the fallback;
+		-- they never hide the real photo or compete with the window's opacity animation.
+		if content ~= "" and not ready and view.Preloading ~= content then
 			view.Preloading = content
+			local requestId = view.RequestId
 			task.spawn(function()
-				if not alive() or photo.Image ~= content then return end
-				pcall(function() game:GetService("ContentProvider"):PreloadAsync({content}) end)
-				if alive() and photo.Image == content then reveal() end
+				if not alive() or view.RequestId ~= requestId or photo.Image ~= content then return end
+				pcall(function()
+					game:GetService("ContentProvider"):PreloadAsync({photo}, function(_, status)
+						if alive() and view.RequestId == requestId and photo.Image == content
+							and status == Enum.AssetFetchStatus.Success then
+							view.LoadedContent = content
+							reveal()
+						end
+					end)
+				end)
+				if alive() and view.RequestId == requestId and photo.Image == content then reveal() end
 			end)
 		end
 	end
 	local function request(refresh)
 		if not alive() or os.clock() - view.LastRequest < 10 then return end
 		view.LastRequest = os.clock()
-		-- Retry failed texture downloads without blanking an already visible portrait.
-		if refresh and not photo.IsLoaded then
-			view.Preloading = nil
-			photo:SetAttribute("AAPThumbnailReady", false)
-			photo.Image = ""
+		view.RequestId += 1
+		local requestId = view.RequestId
+		invalidatePending()
+		if view.ShownImage then
+			if refresh then UI.LoadPlayerThumbnail(photo, S.LocalPlayer, true) end
+			return
 		end
-		UI.LoadPlayerThumbnail(photo, S.LocalPlayer, refresh)
+		view.Preloading, view.LoadedContent = nil, nil
+		photo:SetAttribute("AAPThumbnailUserId", S.LocalPlayer.UserId)
+		photo:SetAttribute("AAPThumbnailReady", false)
+		-- Native thumbnail URIs do not wait for GetUserThumbnailAsync's readiness flag.
+		local content = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=420&h=420", S.LocalPlayer.UserId)
+		if photo.Image == content then photo.Image = "" end
+		photo.Image = content
 		reveal()
+		task.delay(4, function()
+			if alive() and view.RequestId == requestId and not view.ShownImage then
+				UI.LoadPlayerThumbnail(photo, S.LocalPlayer, true)
+			end
+		end)
 	end
 	view.Refresh = request
 	photo:GetPropertyChangedSignal("IsLoaded"):Connect(reveal)
 	photo:GetPropertyChangedSignal("Image"):Connect(reveal)
-	photo:GetAttributeChangedSignal("AAPThumbnailReady"):Connect(reveal)
 	avatar.Activated:Connect(function() request(true) end)
 	local visibleConnection = Runtime.Track(main:GetPropertyChangedSignal("Visible"):Connect(function()
-		if main.Visible and alive() and not view.ShownImage then request(true) end
+		if main.Visible and alive() then
+			reveal()
+			if not view.ShownImage then request(true) end
+		end
 	end))
+	local nameConnection = Runtime.Track(S.LocalPlayer:GetPropertyChangedSignal("DisplayName"):Connect(updateName))
+	local usernameConnection = Runtime.Track(S.LocalPlayer:GetPropertyChangedSignal("Name"):Connect(updateName))
 	local appearanceConnection = Runtime.Track(S.LocalPlayer.CharacterAppearanceLoaded:Connect(function(character)
 		local delayTime = math.max(.5, 10 - (os.clock() - view.LastRequest))
 		task.delay(delayTime, function()
@@ -9673,7 +9706,10 @@ function UI.CreateLocalPlayerProfile(nav, main)
 		view.Destroyed = true
 		Runtime.Untrack(visibleConnection)
 		Runtime.Untrack(appearanceConnection)
+		Runtime.Untrack(nameConnection)
+		Runtime.Untrack(usernameConnection)
 	end)
+	updateName()
 	task.defer(function() request(false) end)
 	-- One automatic recovery; further retries come from reopening the menu or tapping the photo.
 	task.delay(12, function()
@@ -9683,30 +9719,39 @@ function UI.CreateLocalPlayerProfile(nav, main)
 end
 
 function UI.LayoutLocalPlayerProfile(view, compact, scale)
-	local metricHeight = compact and 98 or math.floor(62 * math.clamp(scale, .90, 1.25) + .5)
+	local metricHeight = compact and 114 or math.floor(80 * math.clamp(scale, .90, 1.25) + .5)
 	view.Root.Position = UDim2.new(0, compact and 4 or 10, 1, -8)
 	view.Root.Size = UDim2.new(1, compact and -8 or -20, 0, metricHeight)
 	local avatarSize = compact and 32 or math.floor(36 * math.clamp(scale, .90, 1.25) + .5)
 	view.Avatar.Size = UDim2.fromOffset(avatarSize, avatarSize)
 	view.Presence.Size = UDim2.fromOffset(compact and 6 or 7, compact and 6 or 7)
+	view.NameLabel.AnchorPoint = Vector2.zero
 	if compact then
+		view.NameLabel.Position = UDim2.fromOffset(4, 5)
+		view.NameLabel.Size = UDim2.new(1, -8, 0, 14)
+		view.NameLabel.TextXAlignment = Enum.TextXAlignment.Center
+		UI.SetReadableText(view.NameLabel, 8.5)
 		view.Avatar.AnchorPoint = Vector2.new(.5, 0)
-		view.Avatar.Position = UDim2.new(.5, 0, 0, 7)
+		view.Avatar.Position = UDim2.new(.5, 0, 0, 24)
 		for index, label in ipairs({view.Ping, view.FPS}) do
 			label.AnchorPoint = Vector2.zero
-			label.Position = UDim2.fromOffset(3, 45 + (index - 1) * 17)
+			label.Position = UDim2.fromOffset(3, 62 + (index - 1) * 17)
 			label.Size = UDim2.new(1, -6, 0, 17)
 			label.TextXAlignment = Enum.TextXAlignment.Center
 			UI.SetReadableText(label, 8.5)
 		end
 	else
-		view.Avatar.AnchorPoint = Vector2.new(0, .5)
-		view.Avatar.Position = UDim2.new(0, 7, .5, 0)
+		view.NameLabel.Position = UDim2.fromOffset(8, 5)
+		view.NameLabel.Size = UDim2.new(1, -16, 0, math.floor(17 * math.clamp(scale, .90, 1.25) + .5))
+		view.NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		UI.SetReadableText(view.NameLabel, math.clamp(10.5 * scale, 10, 12))
+		view.Avatar.AnchorPoint = Vector2.new(0, 1)
+		view.Avatar.Position = UDim2.new(0, 7, 1, -7)
 		local statusX = avatarSize + 17
 		local lineHeight = math.floor(18 * math.clamp(scale, .90, 1.25) + .5)
 		for index, label in ipairs({view.Ping, view.FPS}) do
 			label.AnchorPoint = Vector2.new(0, .5)
-			label.Position = UDim2.new(0, statusX, .5, (index == 1 and -.5 or .5) * lineHeight)
+			label.Position = UDim2.new(0, statusX, 1, -7 - avatarSize * .5 + (index == 1 and -.5 or .5) * lineHeight)
 			label.Size = UDim2.new(1, -(statusX + 6), 0, lineHeight)
 			label.TextXAlignment = Enum.TextXAlignment.Left
 			UI.SetReadableText(label, math.clamp(9.5 * scale, 9, 11.5))
@@ -19062,7 +19107,7 @@ local function InitializeVisionX()
 		end)
 	end)
 	Loading.Finish()
-	print(string.format("[VisionX V35.3.18] Menu iniciado: %d tarefas concluídas em %.2f s.",
+	print(string.format("[VisionX V35.3.19] Menu iniciado: %d tarefas concluídas em %.2f s.",
 		State.InitializationReport.Tasks,State.InitializationReport.Seconds))
 end
 
